@@ -20,6 +20,10 @@ class InventoryScreen extends StatefulWidget {
 class _InventoryScreenState extends State<InventoryScreen> {
   static const int _inventorySize = 11;
 
+  /// Matches compact [SoldierInventoryTile] preview for cohort stack hit area.
+  static const double _kFormationSoldierPx = 40;
+  static const double _kFormationSoldierHalf = _kFormationSoldierPx / 2;
+
   /// Drag within this distance of the crosshair snaps to exact center (0, 0).
   static const double _centerSnapPx = 14;
 
@@ -161,20 +165,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tap to add or remove units. Landing default: five ${_kDefaultRosterUnit.name} (production). The lowest selected slot is the cohort anchor on the crosshair (not draggable).',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white70,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Expanded(
                         child: ListView.separated(
                           itemCount: _inventorySize,
                           separatorBuilder: (BuildContext _, int index) {
                             assert(index >= 0);
-                            return const SizedBox(height: 10);
+                            return const SizedBox(height: 6);
                           },
                           itemBuilder: (BuildContext context, int i) {
                             return SoldierInventoryTile(
@@ -187,40 +184,74 @@ class _InventoryScreenState extends State<InventoryScreen> {
                           },
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push<void>(
-                            MaterialPageRoute<void>(
-                              builder: (BuildContext context) =>
-                                  const SoldierDesignScreen(),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push<void>(
+                                  MaterialPageRoute<void>(
+                                    builder: (BuildContext context) =>
+                                        const SoldierDesignScreen(),
+                                  ),
+                                );
+                              },
+                              icon: Icon(
+                                Icons.category_outlined,
+                                size: 18,
+                                color: cs.primary,
+                              ),
+                              label: Text(
+                                'Designs',
+                                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                      color: cs.primary,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: cs.primary,
+                                side: BorderSide(
+                                  color: cs.primary.withValues(alpha: 0.55),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 8,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
                             ),
-                          );
-                        },
-                        icon: const Icon(Icons.category_outlined),
-                        label: const Text('Soldier designs'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: cs.primary,
-                          side: BorderSide(color: cs.primary.withValues(alpha: 0.55)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      FilledButton(
-                        onPressed: _goToWar,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _goToWar,
+                              icon: const Icon(Icons.shield_moon_outlined, size: 18),
+                              label: Text(
+                                'Go to War',
+                                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                      color: cs.onPrimary,
+                                    ),
+                              ),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 8,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
                           ),
-                        ),
-                        child: const Text(
-                          'Go to War',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                        ),
+                        ],
                       ),
                     ],
                   ),
@@ -298,12 +329,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
       final Offset o = _offsets[i] ?? Offset.zero;
       out.add(
         Positioned(
-          left: origin.dx + o.dx - 28,
-          top: origin.dy + o.dy - 28,
-            child: GestureDetector(
+          left: origin.dx + o.dx - _kFormationSoldierHalf,
+          top: origin.dy + o.dy - _kFormationSoldierHalf,
+          child: GestureDetector(
             onPanUpdate: (DragUpdateDetails d) => _onDragSoldier(i, d.delta, panelSize),
             child: CustomPaint(
-              size: const Size(56, 56),
+              size: const Size(_kFormationSoldierPx, _kFormationSoldierPx),
               painter: RosterMiniSoldierPainter(
                 design: _kDefaultRosterUnit,
                 palette: _kDefaultRosterPalette,

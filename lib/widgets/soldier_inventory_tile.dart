@@ -27,51 +27,55 @@ class SoldierInventoryTile extends StatelessWidget {
     final ColorScheme cs = Theme.of(context).colorScheme;
     return Material(
       color: selected ? cs.primaryContainer.withValues(alpha: 0.55) : cs.surfaceContainerHighest.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(10),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Container(
-          height: 88,
-          padding: const EdgeInsets.all(8),
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: selected ? cs.primary : Colors.white24,
-              width: selected ? 3 : 1.5,
+              width: selected ? 2.5 : 1.25,
             ),
           ),
           child: Row(
             children: <Widget>[
               SizedBox(
-                width: 72,
-                height: 72,
+                width: 44,
+                height: 44,
                 child: Center(
                   child: rosterDesign != null
                       ? CustomPaint(
-                          size: const Size(56, 56),
+                          size: const Size(40, 40),
                           painter: RosterMiniSoldierPainter(
                             design: rosterDesign!,
                             palette: rosterPalette,
                           ),
                         )
-                      : const TriangleSoldier(size: 56, side: 40, angle: 0),
+                      : const TriangleSoldier(size: 40, side: 30, angle: 0),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   rosterDesign != null
                       ? '${rosterDesign!.name} · #${index + 1}'
                       : 'Triangle #${index + 1}',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: Colors.white.withValues(alpha: 0.92),
                         fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                        height: 1.15,
                       ),
                 ),
               ),
               if (selected)
-                Icon(Icons.check_circle, color: cs.primary, size: 26),
+                Icon(Icons.check_circle, color: cs.primary, size: 20),
             ],
           ),
         ),

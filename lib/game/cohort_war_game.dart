@@ -8,20 +8,66 @@ import 'package:flutter/material.dart';
 import '../models/cohort_models.dart';
 import '../models/cohort_soldier.dart';
 import '../models/soldier_design.dart';
+import '../models/soldier_design_combat_metrics.dart';
+import '../models/soldier_design_palette.dart';
 import '../models/soldier_range_scales.dart';
 import '../widgets/multi_polygon_soldier_painter.dart';
+import '../widgets/soldier_design_catalog.dart';
 import '../widgets/soldier_contact_painter.dart';
 import '../widgets/triangle_soldier.dart';
 import 'cohort_kinematics.dart';
 import 'orange_field_debris.dart';
 import 'soldier_contact_body.dart';
 
+/// TEMP: set to `false` to hide war debug rings (center dot, contact, attack, detection).
+const bool kWarRangeDebugOverlay = true;
+
+({double fit, Offset anchor})? _warSoldierModelLayout(CohortSoldier s) {
+  final SoldierModel m = s.model;
+  final SoldierDesign? d = m.design;
+  if (d == null) {
+    return null;
+  }
+  final List<SoldierShapePart> parts = d.parts;
+  final Size sz = Size(m.paintSize, m.paintSize);
+  final double fit = MultiPolygonSoldierPainter.layoutMetrics(
+    parts: parts,
+    soldierCanvasSize: sz,
+    motionT: 0.25,
+    attackCycleT: null,
+  ).fitScale;
+  final Offset anchor = MultiPolygonSoldierPainter.modelBboxCenter(
+    parts: parts,
+    motionT: 0.25,
+    attackCycleT: null,
+  );
+  return (fit: fit, anchor: anchor);
+}
+
+Vector2 _warHubOffsetFromBody(CohortSoldier s, double visualAngleRad) {
+  final SoldierModel m = s.model;
+  final SoldierDesign? d = m.design;
+  if (d == null || m.displayPalette == null) {
+    return Vector2.zero();
+  }
+  final ({double fit, Offset anchor})? layout = _warSoldierModelLayout(s);
+  if (layout == null) {
+    return Vector2.zero();
+  }
+  final Offset hub = d.rangePlotHubModel ?? layout.anchor;
+  final double ox = (hub.dx - layout.anchor.dx) * layout.fit;
+  final double oy = (hub.dy - layout.anchor.dy) * layout.fit;
+  final double c = math.cos(visualAngleRad);
+  final double sn = math.sin(visualAngleRad);
+  return Vector2(c * ox - sn * oy, sn * ox + c * oy);
+}
+
 /// War scene: first deployed soldier **is** the cohort anchor (joystick, formation origin); other
 /// soldiers are contact bodies in that leader’s space. [CohortRuntime] drives formation via
 /// **forces**; [localOffset] syncs from bodies relative to the leader soldier.
 ///
 /// **Ranges (player soldier *i*, enemy center = enemy body position):**
-/// - **Detection disk**: center = soldier *i* center, radius = `contactRadius_i ×` [kSoldierDetectionRangeRadiusScale].
+/// - **Detection disk**: center = soldier *i* center, radius = `contactRadius_i ×` [kSoldierDetectionRangeRadiusScale] (universal; includes +60% vs base 21× contact).
 /// - **Attack disk**: center = soldier *i* center, radius = `contactRadius_i ×` [kSoldierAttackRangeRadiusScale].
 ///
 /// **Neutral stick** (`!_playerCohortMoving()`, joystick inside dead zone) — per player soldier *i*
@@ -195,6 +241,20 @@ class CohortWarGame extends Forge2DGame {
         visualAngleForSoldier: _playerSoldierRenderAngle,
       ),
     );
+
+    if (kWarRangeDebugOverlay) {
+      await world.add(
+        _WarRangeDebugOverlay(
+          playerRuntime: playerCohort,
+          playerWorldPosition: (int i) => playerSoldierBodies[i].body.position,
+          playerVisualAngle: _playerSoldierRenderAngle,
+          enemyCount: enemySoldiers.length,
+          enemySoldier: (int i) => enemySoldiers[i].soldier,
+          enemyWorldPosition: (int i) => enemySoldiers[i].body.body.position,
+          enemyVisualAngle: _enemySoldierRenderAngle,
+        ),
+      );
+    }
 
     // Follow the cohort leader (first selected soldier), not a separate ghost body.
     camera.follow(playerSoldierBodies[0], snap: true, maxSpeed: double.infinity);
@@ -475,10 +535,14 @@ class CohortWarGame extends Forge2DGame {
     const double scatterHalfWidth = 450;
     const double scatterHalfHeight = 350;
 
-    const SoldierModel enemyModel = SoldierModel(
-      side: 36,
-      paintSize: 52,
+    final SoldierDesign enemyDesign = kProductionSoldierDesignCatalog.first;
+    const SoldierDesignPalette enemyPalette = SoldierDesignPalette.red;
+    final SoldierModel enemyModel = SoldierModel(
+      side: 40,
+      paintSize: 56,
       isEnemy: true,
+      design: enemyDesign,
+      displayPalette: enemyPalette,
     );
 
     for (int i = 0; i < enemyCount; i++) {
@@ -491,6 +555,9 @@ class CohortWarGame extends Forge2DGame {
         model: enemyModel,
         canonicalSlot: Vector2.zero(),
         localOffset: Vector2.zero(),
+        contact: SoldierContact(
+          radius: combatContactRadiusWorld(enemyDesign.parts),
+        ),
       );
       enemySoldiers.add(
         EnemySoldier(
@@ -656,6 +723,130 @@ class _PlayerSoldierAttackRangeLayer extends Component {
   }
 }
 
+/// Draws **body-centered** attack / detection disks (matches [_updateRangeEntryMaps]),
+/// **contact** circle + optional design **contact** polygon, and **hub** center dot.
+class _WarRangeDebugOverlay extends Component {
+  _WarRangeDebugOverlay({
+    required this.playerRuntime,
+    required this.playerWorldPosition,
+    required this.playerVisualAngle,
+    required this.enemyCount,
+    required this.enemySoldier,
+    required this.enemyWorldPosition,
+    required this.enemyVisualAngle,
+  });
+
+  final CohortRuntime playerRuntime;
+  final Vector2 Function(int index) playerWorldPosition;
+  final double Function(int index) playerVisualAngle;
+  final int enemyCount;
+  final CohortSoldier Function(int index) enemySoldier;
+  final Vector2 Function(int index) enemyWorldPosition;
+  final double Function(int index) enemyVisualAngle;
+
+  static final Paint _detectionStroke = Paint()
+    ..color = const Color(0xFF40C4FF).withValues(alpha: 0.88)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  static final Paint _attackStroke = Paint()
+    ..color = const Color(0xFF1B5E20).withValues(alpha: 0.9)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  static final Paint _contactStroke = Paint()
+    ..color = const Color(0xFF00C853).withValues(alpha: 0.92)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.2;
+  static final Paint _contactPolyStroke = Paint()
+    ..color = const Color(0xFFB9F6CA).withValues(alpha: 0.95)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  static final Paint _hubFill = Paint()
+    ..color = const Color(0xFF14532D).withValues(alpha: 0.98)
+    ..style = PaintingStyle.fill;
+
+  @override
+  int get priority => 45;
+
+  static void _paintOne(
+    Canvas canvas,
+    CohortSoldier s,
+    Vector2 bodyWorld,
+    double angleRad,
+  ) {
+    final double cr = s.contact.radius;
+    final Offset body = Offset(bodyWorld.x, bodyWorld.y);
+    final double rDet = cr * kSoldierDetectionRangeRadiusScale;
+    final double rAtk = cr * kSoldierAttackRangeRadiusScale;
+
+    canvas.drawCircle(body, rDet, _detectionStroke);
+    canvas.drawCircle(body, rAtk, _attackStroke);
+    canvas.drawCircle(body, cr, _contactStroke);
+
+    final SoldierDesign? d = s.model.design;
+    if (d != null) {
+      final ({double fit, Offset anchor})? layout = _warSoldierModelLayout(s);
+      if (layout != null) {
+        for (final SoldierShapePart p in d.parts) {
+          if (p.stackRole != SoldierPartStackRole.contact) {
+            continue;
+          }
+          final List<Offset>? hull = MultiPolygonSoldierPainter.transformedFillVertices(
+            p,
+            0.25,
+            null,
+          );
+          if (hull == null || hull.length < 3) {
+            break;
+          }
+          final double c = math.cos(angleRad);
+          final double sn = math.sin(angleRad);
+          final Path path = Path();
+          for (int i = 0; i < hull.length; i++) {
+            final Offset v = hull[i];
+            final double mx = (v.dx - layout.anchor.dx) * layout.fit;
+            final double my = (v.dy - layout.anchor.dy) * layout.fit;
+            final double wx = bodyWorld.x + c * mx - sn * my;
+            final double wy = bodyWorld.y + sn * mx + c * my;
+            if (i == 0) {
+              path.moveTo(wx, wy);
+            } else {
+              path.lineTo(wx, wy);
+            }
+          }
+          path.close();
+          canvas.drawPath(path, _contactPolyStroke);
+          break;
+        }
+      }
+    }
+
+    final Vector2 hubOff = _warHubOffsetFromBody(s, angleRad);
+    final Offset hub = Offset(bodyWorld.x + hubOff.x, bodyWorld.y + hubOff.y);
+    final double dotR = math.max(2.5, cr * 0.18);
+    canvas.drawCircle(hub, dotR, _hubFill);
+  }
+
+  @override
+  void render(Canvas canvas) {
+    for (int i = 0; i < playerRuntime.soldierCount; i++) {
+      _paintOne(
+        canvas,
+        playerRuntime.soldier(i),
+        playerWorldPosition(i),
+        playerVisualAngle(i),
+      );
+    }
+    for (int i = 0; i < enemyCount; i++) {
+      _paintOne(
+        canvas,
+        enemySoldier(i),
+        enemyWorldPosition(i),
+        enemyVisualAngle(i),
+      );
+    }
+  }
+}
+
 class PlayerFormationPainter extends Component {
   PlayerFormationPainter({
     required this.runtime,
@@ -748,10 +939,36 @@ class EnemySoldiersPainter extends Component {
       canvas.translate(p.x, p.y);
       canvas.rotate(angle);
       canvas.translate(-half, -half);
-      OrangeTrianglePainter(side: m.side).paint(
-        canvas,
-        Size(m.paintSize, m.paintSize),
-      );
+      final Size sz = Size(m.paintSize, m.paintSize);
+      if (m.design != null && m.displayPalette != null) {
+        final List<SoldierShapePart> parts = m.design!.parts;
+        final double fit = MultiPolygonSoldierPainter.layoutMetrics(
+          parts: parts,
+          soldierCanvasSize: sz,
+          motionT: 0.25,
+          attackCycleT: null,
+        ).fitScale;
+        final Offset anchor = MultiPolygonSoldierPainter.modelBboxCenter(
+          parts: parts,
+          motionT: 0.25,
+          attackCycleT: null,
+        );
+        MultiPolygonSoldierPainter(
+          parts: parts,
+          displayPalette: m.displayPalette!,
+          strokeWidth: 2.25,
+          motionT: 0.25,
+          attackCycleT: null,
+          uniformWorldScale: fit,
+          fixedModelAnchor: anchor,
+          paintCrownFlames: m.design!.paintCrownFlames,
+        ).paint(canvas, sz);
+      } else {
+        OrangeTrianglePainter(side: m.side).paint(
+          canvas,
+          sz,
+        );
+      }
       SoldierContactPainter(radius: sc.radius, strokeWidth: 2).paint(
         canvas,
         Size(m.paintSize, m.paintSize),

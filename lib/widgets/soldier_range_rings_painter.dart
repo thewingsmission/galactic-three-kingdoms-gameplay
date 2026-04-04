@@ -9,7 +9,7 @@ import 'multi_polygon_soldier_painter.dart';
 /// War scene: simple circles. Detail dialog: pass [detailStableModelAnchor] matching
 /// [MultiPolygonSoldierPainter.fixedModelAnchor] so dot / detection / attack rings track model
 /// geometry instead of the shifting live bbox center. **Detection** radius =
-/// `contactRadius ×` [kSoldierDetectionRangeRadiusScale] ([CohortWarGame]).
+/// `contactRadius ×` [kSoldierDetectionRangeRadiusScale] (universal player + enemy).
 class SoldierRangeRingsPainter extends CustomPainter {
   SoldierRangeRingsPainter({
     required this.contactRadius,

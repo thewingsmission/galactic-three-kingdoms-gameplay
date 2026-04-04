@@ -278,21 +278,10 @@ List<SoldierDesign> _buildTenRadialLegendaryDrafts() {
 }
 
 /// Legendary **#151** — gold castle-tower with feline face (reference-inspired): battlements, windows, side feet.
+///
+/// Authoring matches [document/soldier_structure.md] Gilded Bastion: **attack** pass draws probe rod (1) then crown (2);
+/// crown flames / strike disk use the triangular attack part only (probe is a quad).
 final List<SoldierShapePart> _kGildedBastionRawParts = <SoldierShapePart>[
-    SoldierShapePart(
-      fillVertices: <Offset>[
-        Offset(-1.4, -22),
-        Offset(1.4, -22),
-        Offset(1.4, -32),
-        Offset(-1.4, -32),
-      ],
-      fillTier: 1,
-      strokeWidth: 1.6,
-      motion: SoldierPartMotion.attackProbeExtend,
-      motionSign: 1.0,
-      motionAmplitudeRad: 60.0,
-      stackRole: SoldierPartStackRole.underlay,
-    ),
     SoldierShapePart(
       fillVertices: <Offset>[
         Offset(-9, -32),
@@ -354,6 +343,20 @@ final List<SoldierShapePart> _kGildedBastionRawParts = <SoldierShapePart>[
       fillTier: 5,
       strokeWidth: 1.8,
       stackRole: SoldierPartStackRole.center,
+    ),
+    SoldierShapePart(
+      fillVertices: <Offset>[
+        Offset(-1.4, -22),
+        Offset(1.4, -22),
+        Offset(1.4, -32),
+        Offset(-1.4, -32),
+      ],
+      fillTier: 1,
+      strokeWidth: 1.6,
+      motion: SoldierPartMotion.attackProbeExtend,
+      motionSign: 1.0,
+      motionAmplitudeRad: 60.0,
+      stackRole: SoldierPartStackRole.attack,
     ),
     SoldierShapePart(
       fillVertices: <Offset>[
