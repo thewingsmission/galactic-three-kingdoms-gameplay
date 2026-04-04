@@ -3,8 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/cohort_models.dart';
+import '../models/soldier_design.dart';
+import '../models/soldier_design_palette.dart';
+import '../widgets/soldier_design_catalog.dart';
 import '../widgets/soldier_inventory_tile.dart';
-import '../widgets/triangle_soldier.dart';
+import 'soldier_design_screen.dart';
 import 'war_screen.dart';
 
 class InventoryScreen extends StatefulWidget {
@@ -20,53 +23,61 @@ class _InventoryScreenState extends State<InventoryScreen> {
   /// Drag within this distance of the crosshair snaps to exact center (0, 0).
   static const double _centerSnapPx = 14;
 
-  final List<bool> _selected = List<bool>.filled(_inventorySize, true);
+  /// Default war roster: production **Gilded Bastion** ×5 on landing.
+  static final SoldierDesign _kDefaultRosterUnit =
+      kProductionSoldierDesignCatalog.first;
+  static const SoldierDesignPalette _kDefaultRosterPalette =
+      SoldierDesignPalette.yellow;
+
+  final List<bool> _selected = List<bool>.filled(_inventorySize, false);
   final Map<int, Offset> _offsets = <int, Offset>{};
 
   @override
   void initState() {
     super.initState();
-    const double r = 78;
-    for (int i = 0; i < _inventorySize; i++) {
-      if (i == 0) {
-        _offsets[i] = Offset.zero;
-      } else {
-        final double a = -math.pi / 2 + i * 0.65;
-        _offsets[i] = Offset(math.cos(a) * r, math.sin(a) * r);
-      }
+    for (int i = 0; i < 5; i++) {
+      _selected[i] = true;
     }
+    _recomputeOffsetsFromSelection();
   }
 
-  int _ordinalForSlot(int slot) {
-    int n = 0;
-    for (int i = 0; i <= slot; i++) {
-      if (_selected[i]) n++;
+  /// Lowest inventory index among selected soldiers (cohort order); that unit stays on the crosshair.
+  int? _firstSelectedIndex() {
+    for (int i = 0; i < _inventorySize; i++) {
+      if (_selected[i]) return i;
     }
-    return n - 1;
+    return null;
+  }
+
+  void _recomputeOffsetsFromSelection() {
+    _offsets.clear();
+    final List<int> sel = <int>[];
+    for (int i = 0; i < _inventorySize; i++) {
+      if (_selected[i]) sel.add(i);
+    }
+    const double r = 78;
+    for (int k = 0; k < sel.length; k++) {
+      final int idx = sel[k];
+      if (k == 0) {
+        _offsets[idx] = Offset.zero;
+      } else {
+        final double a = -math.pi / 2 + k * 0.65;
+        _offsets[idx] = Offset(math.cos(a) * r, math.sin(a) * r);
+      }
+    }
   }
 
   void _toggleSlot(int index) {
     setState(() {
-      if (_selected[index]) {
-        _selected[index] = false;
-        _offsets.remove(index);
-      } else {
-        _selected[index] = true;
-        final int ord = _ordinalForSlot(index);
-        // First soldier in the cohort starts on the crosshair (matches war: local offset 0,0).
-        // Additional soldiers use the ring so they do not stack on the same pixel.
-        if (ord == 0) {
-          _offsets[index] = Offset.zero;
-        } else {
-          const double r = 78;
-          final double a = -math.pi / 2 + ord * 0.65;
-          _offsets[index] = Offset(math.cos(a) * r, math.sin(a) * r);
-        }
-      }
+      _selected[index] = !_selected[index];
+      _recomputeOffsetsFromSelection();
     });
   }
 
   void _onDragSoldier(int index, Offset delta, Size panelSize) {
+    if (index == _firstSelectedIndex()) {
+      return;
+    }
     final Offset half = Offset(panelSize.width / 2, panelSize.height / 2);
     const double margin = 36;
     final double maxX = half.dx - margin;
@@ -93,6 +104,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
             inventoryIndex: i,
             type: SoldierType.triangle,
             localOffset: _offsets[i] ?? Offset.zero,
+            soldierDesign: _kDefaultRosterUnit,
+            cohortPalette: _kDefaultRosterPalette,
           ),
         );
       }
@@ -104,7 +117,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final CohortDeployment d = _buildDeployment();
     if (d.soldiers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one Triangle soldier.')),
+        const SnackBar(content: Text('Select at least one soldier.')),
       );
       return;
     }
@@ -117,16 +130,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme cs = Theme.of(context).colorScheme;
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: <Color>[
-              Color(0xFF0D0B1A),
-              Color(0xFF1A1340),
-              Color(0xFF0A1628),
+            colors: const <Color>[
+              Color(0xFF0F0D08),
+              Color(0xFF2A2314),
+              Color(0xFF0C0B06),
             ],
           ),
         ),
@@ -149,7 +163,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Tap to add or remove from the cohort. All selected by default.',
+                        'Tap to add or remove units. Landing default: five ${_kDefaultRosterUnit.name} (production). The lowest selected slot is the cohort anchor on the crosshair (not draggable).',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.white70,
                             ),
@@ -167,11 +181,34 @@ class _InventoryScreenState extends State<InventoryScreen> {
                               index: i,
                               selected: _selected[i],
                               onTap: () => _toggleSlot(i),
+                              rosterDesign: _kDefaultRosterUnit,
+                              rosterPalette: _kDefaultRosterPalette,
                             );
                           },
                         ),
                       ),
                       const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (BuildContext context) =>
+                                  const SoldierDesignScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.category_outlined),
+                        label: const Text('Soldier designs'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: cs.primary,
+                          side: BorderSide(color: cs.primary.withValues(alpha: 0.55)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       FilledButton(
                         onPressed: _goToWar,
                         style: FilledButton.styleFrom(
@@ -197,7 +234,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.28),
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white24),
+                      border: Border.all(
+                        color: cs.primary.withValues(alpha: 0.42),
+                      ),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(18),
@@ -223,7 +262,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                 top: 40,
                                 right: 16,
                                 child: Text(
-                                  'Drag soldiers relative to the cohort center (crosshair).',
+                                  'Drag other soldiers relative to the crosshair. The first selected soldier stays fixed on the crosshair.',
                                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                         color: Colors.white60,
                                       ),
@@ -261,9 +300,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
         Positioned(
           left: origin.dx + o.dx - 28,
           top: origin.dy + o.dy - 28,
-          child: GestureDetector(
+            child: GestureDetector(
             onPanUpdate: (DragUpdateDetails d) => _onDragSoldier(i, d.delta, panelSize),
-            child: const TriangleSoldier(size: 56, side: 40, angle: 0),
+            child: CustomPaint(
+              size: const Size(56, 56),
+              painter: RosterMiniSoldierPainter(
+                design: _kDefaultRosterUnit,
+                palette: _kDefaultRosterPalette,
+              ),
+            ),
           ),
         ),
       );

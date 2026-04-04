@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../widgets/isosceles_triangle_vertices.dart';
 
-/// Orange enemy triangle (same geometry as yellow); used by [EnemyFormationPainter].
+/// Orange enemy triangle (same geometry as yellow); used by [EnemySoldiersPainter].
 /// Drawn fixed in **soldier local space** (no motion vs soldier origin).
 class OrangeTrianglePainter extends CustomPainter {
   OrangeTrianglePainter({

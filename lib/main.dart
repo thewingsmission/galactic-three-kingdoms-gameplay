@@ -23,7 +23,8 @@ class GalacticGameplayApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6B4EE6),
+          // Player faction (Three Kingdoms — yellow / imperial gold).
+          seedColor: const Color(0xFFFFC107),
           brightness: Brightness.dark,
         ),
         useMaterial3: true,

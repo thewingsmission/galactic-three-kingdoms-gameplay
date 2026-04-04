@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Pale red disk with black outline; drawn in soldier local space, centroid at canvas center.
+/// Contact circle (100% transparent); drawn in soldier local space, centroid at canvas center.
+/// Forge2D [SoldierContactBody] still defines actual collision.
 class SoldierContactPainter extends CustomPainter {
   SoldierContactPainter({
     required this.radius,
@@ -10,17 +11,14 @@ class SoldierContactPainter extends CustomPainter {
   final double radius;
   final double strokeWidth;
 
-  static const Color _fillOpaque = Color(0xFFFFCDD2);
-  static const Color _stroke = Colors.black;
-
   @override
   void paint(Canvas canvas, Size size) {
     final Offset c = Offset(size.width / 2, size.height / 2);
     final Paint fill = Paint()
-      ..color = _fillOpaque.withValues(alpha: 0.5)
+      ..color = Colors.transparent
       ..style = PaintingStyle.fill;
     final Paint stroke = Paint()
-      ..color = _stroke
+      ..color = Colors.transparent
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth;
     canvas.drawCircle(c, radius, fill);

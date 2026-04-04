@@ -7,28 +7,48 @@ import 'package:flutter/material.dart';
 
 import '../models/cohort_models.dart';
 import '../models/cohort_soldier.dart';
+import '../models/soldier_design.dart';
+import '../models/soldier_range_scales.dart';
+import '../widgets/multi_polygon_soldier_painter.dart';
 import '../widgets/soldier_contact_painter.dart';
 import '../widgets/triangle_soldier.dart';
 import 'cohort_kinematics.dart';
 import 'orange_field_debris.dart';
 import 'soldier_contact_body.dart';
 
-/// **Attack range** radius = contact radius × this (visual + facing / engagement checks).
-const double _attackRangeRadiusScale = 3;
-/// **Detection range** radius = attack radius × 7 = contact × (3 × 7).
-const double _detectionRangeRadiusScale = _attackRangeRadiusScale * 7;
-
-/// War scene: Forge2D leader + per-soldier **contact** circle bodies.
-/// [CohortRuntime] drives formation via **forces** toward targets; [localOffset] syncs from bodies.
+/// War scene: first deployed soldier **is** the cohort anchor (joystick, formation origin); other
+/// soldiers are contact bodies in that leader’s space. [CohortRuntime] drives formation via
+/// **forces**; [localOffset] syncs from bodies relative to the leader soldier.
 ///
-/// **Movement / facing (player + mirrored enemy):**
-/// - **Moving** (player: stick ≥6% of throw; enemy: any soldier speed > [_enemyCohortMovingVel]):
-///   formation PD toward slots; face earliest enemy in **attack** range by entry time, else face
-///   cohort velocity (player: leader vel; enemy: mean soldier vel).
-/// - **Not moving**: if **detection** has enemies: face earliest by detection entry time; chase
-///   toward that enemy if not in **attack** range (velocity steered to **cohortMaxSpeed** along
-///   that bearing—same cap as full-stick cohort move). If in attack range, no formation/chase (hold).
-///   If no detection: **formation PD** toward slots (idle holds shape), frozen facing.
+/// **Ranges (player soldier *i*, enemy center = enemy body position):**
+/// - **Detection disk**: center = soldier *i* center, radius = `contactRadius_i ×` [kSoldierDetectionRangeRadiusScale].
+/// - **Attack disk**: center = soldier *i* center, radius = `contactRadius_i ×` [kSoldierAttackRangeRadiusScale].
+///
+/// **Neutral stick** (`!_playerCohortMoving()`, joystick inside dead zone) — per player soldier *i*
+/// after `_updateRangeEntryMaps` (and using earliest detection/attack **entry time** when multiple
+/// enemies qualify):
+///
+/// ```
+/// if (no enemy center lies inside soldier i’s detection disk) {
+///   apply formation PD toward leader + formationTargetLocal(i);
+///   no chase from _applyChaseForces for i;
+/// } else {
+///   let E = chosen enemy (earliest detection entry among those in the disk);
+///   do not apply formation PD to soldier i;
+///   if (E’s center lies inside soldier i’s attack disk) {
+///     no chase for i (hold — only physics damping / collisions);
+///   } else {
+///     chase: steer velocity toward cohortMaxSpeed along line to E’s center;
+///   }
+/// }
+/// ```
+///
+/// **Moving stick** (player): formation PD applies (subject to per-soldier detection skip above only
+/// when stick neutral); chase block above is skipped. Facing uses attack/detection/leader velocity
+/// per `_playerSoldierFacingAngle`.
+///
+/// **Enemies**: no formation PD; chase when not “moving” by speed threshold and player in detection
+/// but not attack (mirror logic via `_earliestPlayerInDetectionForEnemy`, etc.).
 class CohortWarGame extends Forge2DGame {
   CohortWarGame({
     required CohortDeployment deployment,
@@ -55,35 +75,37 @@ class CohortWarGame extends Forge2DGame {
   static const double _velocitySnap2 = 20 * 20;
   /// Ignore flip-detect when nearly still (avoids noise).
   static const double _neutralOppClampMinVel2 = 25;
-  /// Enemy cohort treated as "moving" if any soldier speed exceeds this (no joystick).
-  static const double _enemyCohortMovingVel = 25;
-  static final double _enemyCohortMovingVel2 =
-      _enemyCohortMovingVel * _enemyCohortMovingVel;
+  /// Enemy soldier treated as "moving" if its speed exceeds this (no joystick).
+  static const double _enemySoldierMovingVel = 25;
+  static final double _enemySoldierMovingVel2 =
+      _enemySoldierMovingVel * _enemySoldierMovingVel;
   /// Aim / velocity magnitude² below this → use cohort aim instead of velocity direction.
   static const double _moveDirEpsilon2 = 4;
   /// Chase steering: drive soldier velocity toward [cohortMaxSpeed] along line to target (stationary cohort).
   static const double _chaseVelocitySteerGain = 8;
 
-  late final CohortLeader leader;
   late final CohortRuntime playerCohort;
   late final List<SoldierContactBody> playerSoldierBodies;
   late final List<Vector2> _soldierVelBefore;
-  final Vector2 _leaderVelBefore = Vector2.zero();
-  final List<EnemyCohort> enemyCohorts = <EnemyCohort>[];
+  final Vector2 _leaderSoldierVelBefore = Vector2.zero();
+  final List<EnemySoldier> enemySoldiers = <EnemySoldier>[];
 
   double _warTime = 0;
   late List<Map<String, double>> _playerAttackEntry;
   late List<Map<String, double>> _playerDetectionEntry;
   late List<double> _lastPlayerFacing;
-  late List<List<Map<String, double>>> _enemyAttackPlayerEntry;
-  late List<List<Map<String, double>>> _enemyDetectionPlayerEntry;
-  late List<List<double>> _lastEnemySoldierFacing;
+  late List<Map<String, double>> _enemyAttackPlayerEntry;
+  late List<Map<String, double>> _enemyDetectionPlayerEntry;
+  late List<double> _lastEnemySoldierFacing;
 
   void setStick(Offset normalized) {
     stick.setValues(normalized.dx, normalized.dy);
   }
 
   int get soldierCount => _deployment.soldiers.length;
+
+  /// First deployed soldier: receives stick steering; formation anchor; camera target.
+  Body get _leaderBody => playerSoldierBodies[0].body;
 
   @override
   Future<void> onLoad() async {
@@ -97,23 +119,22 @@ class CohortWarGame extends Forge2DGame {
     final Vector2 start =
         size.x > 0 && size.y > 0 ? size / 2 : Vector2(400, 240);
 
-    _spawnEnemyCohorts(start);
-
-    leader = CohortLeader(start: start);
-    await world.add(leader);
+    _spawnEnemySoldiers(start);
 
     final List<SoldierContactBody> pb = <SoldierContactBody>[];
     for (int i = 0; i < playerCohort.soldierCount; i++) {
       final CohortSoldier s = playerCohort.soldier(i);
-      final Vector2 pos = leader.body.position + s.localOffset;
+      final Vector2 pos = start + s.localOffset;
       final SoldierContactBody b = SoldierContactBody(
         contactRadius: s.contact.radius,
         position: pos,
       );
       pb.add(b);
-      await world.add(b);
     }
     playerSoldierBodies = pb;
+    for (final SoldierContactBody b in playerSoldierBodies) {
+      await world.add(b);
+    }
     _soldierVelBefore = List<Vector2>.generate(
       playerSoldierBodies.length,
       (_) => Vector2.zero(),
@@ -131,33 +152,18 @@ class CohortWarGame extends Forge2DGame {
       playerCohort.soldierCount,
       (_) => playerCohort.visualAngle,
     );
-    _enemyAttackPlayerEntry = <List<Map<String, double>>>[];
-    _enemyDetectionPlayerEntry = <List<Map<String, double>>>[];
-    _lastEnemySoldierFacing = <List<double>>[];
-    for (int ci = 0; ci < enemyCohorts.length; ci++) {
-      final EnemyCohort ec = enemyCohorts[ci];
-      ec.cohortIndex = ci;
-      final int n = ec.runtime.soldierCount;
-      _enemyAttackPlayerEntry.add(
-        List<Map<String, double>>.generate(n, (_) => <String, double>{}),
-      );
-      _enemyDetectionPlayerEntry.add(
-        List<Map<String, double>>.generate(n, (_) => <String, double>{}),
-      );
-      _lastEnemySoldierFacing.add(List<double>.filled(n, 0));
-    }
+    _enemyAttackPlayerEntry = List<Map<String, double>>.generate(
+      enemySoldiers.length,
+      (_) => <String, double>{},
+    );
+    _enemyDetectionPlayerEntry = List<Map<String, double>>.generate(
+      enemySoldiers.length,
+      (_) => <String, double>{},
+    );
+    _lastEnemySoldierFacing = List<double>.filled(enemySoldiers.length, 0);
 
-    for (final EnemyCohort e in enemyCohorts) {
-      for (int i = 0; i < e.runtime.soldierCount; i++) {
-        final CohortSoldier s = e.runtime.soldier(i);
-        final Vector2 pos = e.position + s.localOffset;
-        final SoldierContactBody b = SoldierContactBody(
-          contactRadius: s.contact.radius,
-          position: pos,
-        );
-        e.soldierBodies.add(b);
-        await world.add(b);
-      }
+    for (final EnemySoldier e in enemySoldiers) {
+      await world.add(e.body);
     }
 
     await world.add(
@@ -173,15 +179,14 @@ class CohortWarGame extends Forge2DGame {
       ),
     );
 
-    for (final EnemyCohort e in enemyCohorts) {
-      await world.add(
-        EnemyFormationPainter(
-          runtime: e.runtime,
-          soldierWorldPosition: (int i) => e.soldierBodies[i].body.position,
-          visualAngleForSoldier: (int i) => _enemySoldierRenderAngle(e.cohortIndex, i),
-        ),
-      );
-    }
+    await world.add(
+      EnemySoldiersPainter(
+        enemyCount: enemySoldiers.length,
+        soldier: (int i) => enemySoldiers[i].soldier,
+        soldierWorldPosition: (int i) => enemySoldiers[i].body.body.position,
+        visualAngleForSoldier: _enemySoldierRenderAngle,
+      ),
+    );
 
     await world.add(
       PlayerFormationPainter(
@@ -191,9 +196,8 @@ class CohortWarGame extends Forge2DGame {
       ),
     );
 
-    // World updates before camera (lower priority), so [FollowBehavior] sees the leader
-    // after Forge2D; infinite maxSpeed keeps the viewfinder locked to the cohort center.
-    camera.follow(leader, snap: true, maxSpeed: double.infinity);
+    // Follow the cohort leader (first selected soldier), not a separate ghost body.
+    camera.follow(playerSoldierBodies[0], snap: true, maxSpeed: double.infinity);
   }
 
   /// Cohort convention: [atan2(dx, -dy)] matches [CohortRuntime] aim / forward `(0,-1)`.
@@ -203,27 +207,21 @@ class CohortWarGame extends Forge2DGame {
 
   double _playerSoldierRenderAngle(int i) => _playerSoldierFacingAngle(i);
 
-  double _enemySoldierRenderAngle(int cohortIndex, int soldierIndex) =>
-      _enemySoldierFacingAngle(cohortIndex, soldierIndex);
+  double _enemySoldierRenderAngle(int enemyIndex) =>
+      _enemySoldierFacingAngle(enemyIndex);
 
   bool _playerCohortMoving() =>
       stick.length2 > _stickNeutral * _stickNeutral;
 
-  bool _enemyCohortMoving(int cohortIndex) {
-    final EnemyCohort e = enemyCohorts[cohortIndex];
-    for (int i = 0; i < e.soldierBodies.length; i++) {
-      if (e.soldierBodies[i].body.linearVelocity.length2 > _enemyCohortMovingVel2) {
-        return true;
-      }
-    }
-    return false;
+  bool _enemySoldierMoving(int enemyIndex) {
+    return enemySoldiers[enemyIndex].body.body.linearVelocity.length2 >
+        _enemySoldierMovingVel2;
   }
 
   Vector2 _enemyWorldPosFromKey(String key) {
-    final List<String> p = key.split('-');
-    final int ci = int.parse(p[0]);
-    final int sj = int.parse(p[1]);
-    return enemyCohorts[ci].soldierBodies[sj].body.position;
+    // Keys: "e-0", "e-1", …
+    final int ei = int.parse(key.substring(2));
+    return enemySoldiers[ei].body.body.position;
   }
 
   Vector2 _playerWorldPosFromKey(String key) {
@@ -235,21 +233,18 @@ class CohortWarGame extends Forge2DGame {
     for (int i = 0; i < playerSoldierBodies.length; i++) {
       final Vector2 pos = playerSoldierBodies[i].body.position;
       final double cr = playerCohort.soldier(i).contact.radius;
-      final double rA = cr * _attackRangeRadiusScale;
-      final double rD = cr * _detectionRangeRadiusScale;
+      final double rA = cr * kSoldierAttackRangeRadiusScale;
+      final double rD = cr * kSoldierDetectionRangeRadiusScale;
       final double rA2 = rA * rA;
       final double rD2 = rD * rD;
       final Set<String> inA = <String>{};
       final Set<String> inD = <String>{};
-      for (int ci = 0; ci < enemyCohorts.length; ci++) {
-        final EnemyCohort e = enemyCohorts[ci];
-        for (int sj = 0; sj < e.runtime.soldierCount; sj++) {
-          final Vector2 c = e.soldierBodies[sj].body.position;
-          final String k = '$ci-$sj';
-          final double d2 = (c - pos).length2;
-          if (d2 <= rA2) inA.add(k);
-          if (d2 <= rD2) inD.add(k);
-        }
+      for (int ei = 0; ei < enemySoldiers.length; ei++) {
+        final Vector2 c = enemySoldiers[ei].body.body.position;
+        final String k = 'e-$ei';
+        final double d2 = (c - pos).length2;
+        if (d2 <= rA2) inA.add(k);
+        if (d2 <= rD2) inD.add(k);
       }
       _playerAttackEntry[i].removeWhere((String k, double _) => !inA.contains(k));
       for (final String k in inA) {
@@ -261,34 +256,32 @@ class CohortWarGame extends Forge2DGame {
       }
     }
 
-    for (int ci = 0; ci < enemyCohorts.length; ci++) {
-      final EnemyCohort e = enemyCohorts[ci];
-      for (int si = 0; si < e.runtime.soldierCount; si++) {
-        final Vector2 pos = e.soldierBodies[si].body.position;
-        final double cr = e.runtime.soldier(si).contact.radius;
-        final double rA = cr * _attackRangeRadiusScale;
-        final double rD = cr * _detectionRangeRadiusScale;
-        final double rA2 = rA * rA;
-        final double rD2 = rD * rD;
-        final Set<String> inA = <String>{};
-        final Set<String> inD = <String>{};
-        for (int pj = 0; pj < playerSoldierBodies.length; pj++) {
-          final Vector2 c = playerSoldierBodies[pj].body.position;
-          final String k = 'p-$pj';
-          final double d2 = (c - pos).length2;
-          if (d2 <= rA2) inA.add(k);
-          if (d2 <= rD2) inD.add(k);
-        }
-        _enemyAttackPlayerEntry[ci][si]
-            .removeWhere((String k, double _) => !inA.contains(k));
-        for (final String k in inA) {
-          _enemyAttackPlayerEntry[ci][si].putIfAbsent(k, () => _warTime);
-        }
-        _enemyDetectionPlayerEntry[ci][si]
-            .removeWhere((String k, double _) => !inD.contains(k));
-        for (final String k in inD) {
-          _enemyDetectionPlayerEntry[ci][si].putIfAbsent(k, () => _warTime);
-        }
+    for (int ei = 0; ei < enemySoldiers.length; ei++) {
+      final EnemySoldier es = enemySoldiers[ei];
+      final Vector2 pos = es.body.body.position;
+      final double cr = es.soldier.contact.radius;
+      final double rA = cr * kSoldierAttackRangeRadiusScale;
+      final double rD = cr * kSoldierDetectionRangeRadiusScale;
+      final double rA2 = rA * rA;
+      final double rD2 = rD * rD;
+      final Set<String> inA = <String>{};
+      final Set<String> inD = <String>{};
+      for (int pj = 0; pj < playerSoldierBodies.length; pj++) {
+        final Vector2 c = playerSoldierBodies[pj].body.position;
+        final String k = 'p-$pj';
+        final double d2 = (c - pos).length2;
+        if (d2 <= rA2) inA.add(k);
+        if (d2 <= rD2) inD.add(k);
+      }
+      _enemyAttackPlayerEntry[ei]
+          .removeWhere((String k, double _) => !inA.contains(k));
+      for (final String k in inA) {
+        _enemyAttackPlayerEntry[ei].putIfAbsent(k, () => _warTime);
+      }
+      _enemyDetectionPlayerEntry[ei]
+          .removeWhere((String k, double _) => !inD.contains(k));
+      for (final String k in inD) {
+        _enemyDetectionPlayerEntry[ei].putIfAbsent(k, () => _warTime);
       }
     }
   }
@@ -310,15 +303,12 @@ class CohortWarGame extends Forge2DGame {
   String? _earliestEnemyInAttackForPlayer(int i) {
     final Vector2 pos = playerSoldierBodies[i].body.position;
     final double cr = playerCohort.soldier(i).contact.radius;
-    final double rA = cr * _attackRangeRadiusScale;
+    final double rA = cr * kSoldierAttackRangeRadiusScale;
     final double rA2 = rA * rA;
     final Set<String> inA = <String>{};
-    for (int ci = 0; ci < enemyCohorts.length; ci++) {
-      final EnemyCohort e = enemyCohorts[ci];
-      for (int sj = 0; sj < e.runtime.soldierCount; sj++) {
-        final Vector2 c = e.soldierBodies[sj].body.position;
-        if ((c - pos).length2 <= rA2) inA.add('$ci-$sj');
-      }
+    for (int ei = 0; ei < enemySoldiers.length; ei++) {
+      final Vector2 c = enemySoldiers[ei].body.body.position;
+      if ((c - pos).length2 <= rA2) inA.add('e-$ei');
     }
     return _earliestKeyInSet(inA, _playerAttackEntry[i]);
   }
@@ -326,15 +316,12 @@ class CohortWarGame extends Forge2DGame {
   String? _earliestEnemyInDetectionForPlayer(int i) {
     final Vector2 pos = playerSoldierBodies[i].body.position;
     final double cr = playerCohort.soldier(i).contact.radius;
-    final double rD = cr * _detectionRangeRadiusScale;
+    final double rD = cr * kSoldierDetectionRangeRadiusScale;
     final double rD2 = rD * rD;
     final Set<String> inD = <String>{};
-    for (int ci = 0; ci < enemyCohorts.length; ci++) {
-      final EnemyCohort e = enemyCohorts[ci];
-      for (int sj = 0; sj < e.runtime.soldierCount; sj++) {
-        final Vector2 c = e.soldierBodies[sj].body.position;
-        if ((c - pos).length2 <= rD2) inD.add('$ci-$sj');
-      }
+    for (int ei = 0; ei < enemySoldiers.length; ei++) {
+      final Vector2 c = enemySoldiers[ei].body.body.position;
+      if ((c - pos).length2 <= rD2) inD.add('e-$ei');
     }
     return _earliestKeyInSet(inD, _playerDetectionEntry[i]);
   }
@@ -342,51 +329,43 @@ class CohortWarGame extends Forge2DGame {
   bool _enemyCenterInPlayerAttackRange(int playerIndex, String enemyKey) {
     final Vector2 pos = playerSoldierBodies[playerIndex].body.position;
     final double cr = playerCohort.soldier(playerIndex).contact.radius;
-    final double rA = cr * _attackRangeRadiusScale;
+    final double rA = cr * kSoldierAttackRangeRadiusScale;
     final Vector2 c = _enemyWorldPosFromKey(enemyKey);
     return (c - pos).length2 <= rA * rA;
   }
 
-  String? _earliestPlayerInAttackForEnemy(int cohortIndex, int soldierIndex) {
-    final EnemyCohort e = enemyCohorts[cohortIndex];
-    final Vector2 pos = e.soldierBodies[soldierIndex].body.position;
-    final double cr = e.runtime.soldier(soldierIndex).contact.radius;
-    final double rA = cr * _attackRangeRadiusScale;
+  String? _earliestPlayerInAttackForEnemy(int enemyIndex) {
+    final EnemySoldier es = enemySoldiers[enemyIndex];
+    final Vector2 pos = es.body.body.position;
+    final double cr = es.soldier.contact.radius;
+    final double rA = cr * kSoldierAttackRangeRadiusScale;
     final double rA2 = rA * rA;
     final Set<String> inA = <String>{};
     for (int pj = 0; pj < playerSoldierBodies.length; pj++) {
       final Vector2 c = playerSoldierBodies[pj].body.position;
       if ((c - pos).length2 <= rA2) inA.add('p-$pj');
     }
-    return _earliestKeyInSet(inA, _enemyAttackPlayerEntry[cohortIndex][soldierIndex]);
+    return _earliestKeyInSet(inA, _enemyAttackPlayerEntry[enemyIndex]);
   }
 
-  String? _earliestPlayerInDetectionForEnemy(int cohortIndex, int soldierIndex) {
-    final EnemyCohort e = enemyCohorts[cohortIndex];
-    final Vector2 pos = e.soldierBodies[soldierIndex].body.position;
-    final double cr = e.runtime.soldier(soldierIndex).contact.radius;
-    final double rD = cr * _detectionRangeRadiusScale;
+  String? _earliestPlayerInDetectionForEnemy(int enemyIndex) {
+    final EnemySoldier es = enemySoldiers[enemyIndex];
+    final Vector2 pos = es.body.body.position;
+    final double cr = es.soldier.contact.radius;
+    final double rD = cr * kSoldierDetectionRangeRadiusScale;
     final double rD2 = rD * rD;
     final Set<String> inD = <String>{};
     for (int pj = 0; pj < playerSoldierBodies.length; pj++) {
       final Vector2 c = playerSoldierBodies[pj].body.position;
       if ((c - pos).length2 <= rD2) inD.add('p-$pj');
     }
-    return _earliestKeyInSet(inD, _enemyDetectionPlayerEntry[cohortIndex][soldierIndex]);
+    return _earliestKeyInSet(inD, _enemyDetectionPlayerEntry[enemyIndex]);
   }
 
-  bool _playerCenterInEnemyAttackRange(
-    int cohortIndex,
-    int enemySoldierIndex,
-    String playerKey,
-  ) {
-    final Vector2 pos = enemyCohorts[cohortIndex]
-        .soldierBodies[enemySoldierIndex]
-        .body
-        .position;
-    final double cr =
-        enemyCohorts[cohortIndex].runtime.soldier(enemySoldierIndex).contact.radius;
-    final double rA = cr * _attackRangeRadiusScale;
+  bool _playerCenterInEnemyAttackRange(int enemyIndex, String playerKey) {
+    final Vector2 pos = enemySoldiers[enemyIndex].body.body.position;
+    final double cr = enemySoldiers[enemyIndex].soldier.contact.radius;
+    final double rA = cr * kSoldierAttackRangeRadiusScale;
     final Vector2 c = _playerWorldPosFromKey(playerKey);
     return (c - pos).length2 <= rA * rA;
   }
@@ -402,7 +381,7 @@ class CohortWarGame extends Forge2DGame {
         final Vector2 d = _enemyWorldPosFromKey(ea) - p;
         angle = d.length2 < 1e-12 ? _lastPlayerFacing[i] : _aimAngleToward(d);
       } else {
-        final Vector2 v = leader.body.linearVelocity;
+        final Vector2 v = _leaderBody.linearVelocity;
         angle = v.length2 > _moveDirEpsilon2
             ? _aimAngleToward(v)
             : playerCohort.visualAngle;
@@ -423,44 +402,36 @@ class CohortWarGame extends Forge2DGame {
     return angle;
   }
 
-  double _enemySoldierFacingAngle(int cohortIndex, int soldierIndex) {
-    final EnemyCohort e = enemyCohorts[cohortIndex];
-    final bool moving = _enemyCohortMoving(cohortIndex);
-    final Vector2 p = e.soldierBodies[soldierIndex].body.position;
-    final String? pa = _earliestPlayerInAttackForEnemy(cohortIndex, soldierIndex);
-    final String? pd = _earliestPlayerInDetectionForEnemy(cohortIndex, soldierIndex);
+  double _enemySoldierFacingAngle(int enemyIndex) {
+    final EnemySoldier es = enemySoldiers[enemyIndex];
+    final bool moving = _enemySoldierMoving(enemyIndex);
+    final Vector2 p = es.body.body.position;
+    final String? pa = _earliestPlayerInAttackForEnemy(enemyIndex);
+    final String? pd = _earliestPlayerInDetectionForEnemy(enemyIndex);
     double angle;
 
-    // Order matters: [moving] used to win over [detection] while chase speed crossed
-    // [_enemyCohortMovingVel], flipping between mean-velocity aim and face-player → flicker.
-    // While any player remains in **detection**, keep aiming at that target (stable during approach).
+    // Order: attack / detection first; avoids flicker when chase speed crosses [_enemySoldierMovingVel].
     if (pa != null) {
       final Vector2 d = _playerWorldPosFromKey(pa) - p;
       angle = d.length2 < 1e-12
-          ? _lastEnemySoldierFacing[cohortIndex][soldierIndex]
+          ? _lastEnemySoldierFacing[enemyIndex]
           : _aimAngleToward(d);
     } else if (pd != null) {
       final Vector2 d = _playerWorldPosFromKey(pd) - p;
       angle = d.length2 < 1e-12
-          ? _lastEnemySoldierFacing[cohortIndex][soldierIndex]
+          ? _lastEnemySoldierFacing[enemyIndex]
           : _aimAngleToward(d);
     } else if (moving) {
-      Vector2 sum = Vector2.zero();
-      int n = 0;
-      for (int k = 0; k < e.soldierBodies.length; k++) {
-        sum += e.soldierBodies[k].body.linearVelocity;
-        n++;
-      }
-      final Vector2 v = n > 0 ? Vector2(sum.x / n, sum.y / n) : Vector2.zero();
+      final Vector2 v = es.body.body.linearVelocity;
       angle = v.length2 > _moveDirEpsilon2
           ? _aimAngleToward(v)
-          : e.runtime.visualAngle;
+          : 0;
     } else {
-      angle = _lastEnemySoldierFacing[cohortIndex][soldierIndex];
+      angle = _lastEnemySoldierFacing[enemyIndex];
     }
 
     if (moving || pa != null || pd != null) {
-      _lastEnemySoldierFacing[cohortIndex][soldierIndex] = angle;
+      _lastEnemySoldierFacing[enemyIndex] = angle;
     }
     return angle;
   }
@@ -475,6 +446,8 @@ class CohortWarGame extends Forge2DGame {
     b.applyForce(err * b.mass * _chaseVelocitySteerGain);
   }
 
+  /// See class doc: neutral-stick chase applies only when an enemy center is in the soldier’s
+  /// detection disk but outside their attack disk.
   void _applyChaseForces() {
     if (!_playerCohortMoving()) {
       for (int i = 0; i < playerSoldierBodies.length; i++) {
@@ -486,76 +459,71 @@ class CohortWarGame extends Forge2DGame {
       }
     }
 
-    for (int ci = 0; ci < enemyCohorts.length; ci++) {
-      if (_enemyCohortMoving(ci)) continue;
-      final EnemyCohort e = enemyCohorts[ci];
-      for (int si = 0; si < e.soldierBodies.length; si++) {
-        final String? pd = _earliestPlayerInDetectionForEnemy(ci, si);
-        if (pd == null) continue;
-        if (_playerCenterInEnemyAttackRange(ci, si, pd)) continue;
-        final Body b = e.soldierBodies[si].body;
-        _applyChaseVelocityToward(b, _playerWorldPosFromKey(pd));
-      }
+    for (int ei = 0; ei < enemySoldiers.length; ei++) {
+      if (_enemySoldierMoving(ei)) continue;
+      final String? pd = _earliestPlayerInDetectionForEnemy(ei);
+      if (pd == null) continue;
+      if (_playerCenterInEnemyAttackRange(ei, pd)) continue;
+      final Body b = enemySoldiers[ei].body.body;
+      _applyChaseVelocityToward(b, _playerWorldPosFromKey(pd));
     }
   }
 
-  void _spawnEnemyCohorts(Vector2 center) {
+  void _spawnEnemySoldiers(Vector2 center) {
     final math.Random rng = math.Random(21);
-    final List<List<Vector2>> patterns = <List<Vector2>>[
-      <Vector2>[
-        Vector2(0, -36),
-        Vector2(-32, 28),
-        Vector2(32, 28),
-      ],
-      <Vector2>[
-        Vector2(0, -40),
-        Vector2(-44, 20),
-        Vector2(44, 20),
-        Vector2(0, 32),
-      ],
-      <Vector2>[
-        Vector2(-50, -10),
-        Vector2(0, -38),
-        Vector2(50, -10),
-        Vector2(-28, 36),
-        Vector2(28, 36),
-      ],
-    ];
+    const int enemyCount = 12;
+    const double scatterHalfWidth = 450;
+    const double scatterHalfHeight = 350;
 
-    for (int i = 0; i < 3; i++) {
-      final Vector2 offset = Vector2(
-        (rng.nextDouble() - 0.5) * 900,
-        (rng.nextDouble() - 0.5) * 700,
+    const SoldierModel enemyModel = SoldierModel(
+      side: 36,
+      paintSize: 52,
+      isEnemy: true,
+    );
+
+    for (int i = 0; i < enemyCount; i++) {
+      final Vector2 worldPos = center +
+          Vector2(
+            (rng.nextDouble() - 0.5) * 2 * scatterHalfWidth,
+            (rng.nextDouble() - 0.5) * 2 * scatterHalfHeight,
+          );
+      final CohortSoldier s = CohortSoldier(
+        model: enemyModel,
+        canonicalSlot: Vector2.zero(),
+        localOffset: Vector2.zero(),
       );
-      enemyCohorts.add(
-        EnemyCohort(
-          position: center + offset,
-          runtime: CohortRuntime.withSlots(patterns[i % patterns.length]),
+      enemySoldiers.add(
+        EnemySoldier(
+          soldier: s,
+          body: SoldierContactBody(
+            contactRadius: s.contact.radius,
+            position: worldPos,
+          ),
         ),
       );
     }
   }
 
   void _steer() {
-    final Vector2 v = leader.body.linearVelocity;
+    final Vector2 v = _leaderBody.linearVelocity;
     if (stick.length2 <= _stickNeutral * _stickNeutral) {
       if (v.length2 <= _velocitySnap2) {
-        leader.body.linearVelocity.setZero();
+        _leaderBody.linearVelocity.setZero();
         return;
       }
     }
     final Vector2 target = stick * cohortMaxSpeed;
     final Vector2 err = target - v;
-    leader.body.applyForce(err * leader.body.mass * steeringGain);
+    _leaderBody.applyForce(err * _leaderBody.mass * steeringGain);
   }
 
+  /// If neutral stick and some enemy center is in soldier *i*’s detection disk — skip formation
+  /// for *i* (chase/hold handled in `_applyChaseForces`). Else formation PD for *i*.
   void _applySoldierFormationForces() {
-    final Vector2 lc = leader.body.position;
-    final Vector2 vLeader = leader.body.linearVelocity;
+    final Vector2 lc = _leaderBody.position;
+    final Vector2 vLeader = _leaderBody.linearVelocity;
     final double c = soldierFormationVelDamp;
 
-    // Player: formation whenever moving, or idle with no detection engagement (settle to slots).
-    // Skip per soldier while idle+detection (chase / hold replaces formation for that soldier).
     for (int i = 0; i < playerSoldierBodies.length; i++) {
       if (!_playerCohortMoving() &&
           _earliestEnemyInDetectionForPlayer(i) != null) {
@@ -568,36 +536,18 @@ class CohortWarGame extends Forge2DGame {
       final Vector2 accel = err * soldierFormationGain - relVel * c;
       b.applyForce(accel * b.mass);
     }
-    for (int ci = 0; ci < enemyCohorts.length; ci++) {
-      if (!_enemyCohortMoving(ci)) continue;
-      final EnemyCohort e = enemyCohorts[ci];
-      for (int i = 0; i < e.soldierBodies.length; i++) {
-        final Body b = e.soldierBodies[i].body;
-        final Vector2 target = e.position + e.runtime.formationTargetLocal(i);
-        final Vector2 err = target - b.worldCenter;
-        final Vector2 v = b.linearVelocity;
-        final Vector2 accel = err * soldierFormationGain - v * c;
-        b.applyForce(accel * b.mass);
-      }
-    }
   }
 
   void _syncSoldierOffsetsFromBodies() {
-    final Vector2 lc = leader.body.position;
+    final Vector2 lc = _leaderBody.position;
     for (int i = 0; i < playerSoldierBodies.length; i++) {
       playerCohort.soldier(i).localOffset =
           playerSoldierBodies[i].body.position - lc;
     }
-    for (final EnemyCohort e in enemyCohorts) {
-      for (int i = 0; i < e.soldierBodies.length; i++) {
-        e.runtime.soldier(i).localOffset =
-            e.soldierBodies[i].body.position - e.position;
-      }
-    }
   }
 
   void _snapshotVelocitiesBeforeStep() {
-    _leaderVelBefore.setFrom(leader.body.linearVelocity);
+    _leaderSoldierVelBefore.setFrom(_leaderBody.linearVelocity);
     for (int i = 0; i < playerSoldierBodies.length; i++) {
       _soldierVelBefore[i].setFrom(playerSoldierBodies[i].body.linearVelocity);
     }
@@ -616,7 +566,7 @@ class CohortWarGame extends Forge2DGame {
       }
     }
 
-    clampIfFlipped(leader.body, _leaderVelBefore);
+    clampIfFlipped(_leaderBody, _leaderSoldierVelBefore);
     for (int i = 0; i < playerSoldierBodies.length; i++) {
       clampIfFlipped(playerSoldierBodies[i].body, _soldierVelBefore[i]);
     }
@@ -627,9 +577,6 @@ class CohortWarGame extends Forge2DGame {
     _snapshotVelocitiesBeforeStep();
     _steer();
     playerCohort.update(dt, stick, integratePositions: false);
-    for (final EnemyCohort e in enemyCohorts) {
-      e.runtime.update(dt, Vector2.zero(), integratePositions: false);
-    }
     _warTime += dt;
     _updateRangeEntryMaps();
     _applySoldierFormationForces();
@@ -640,25 +587,24 @@ class CohortWarGame extends Forge2DGame {
 
     _syncSoldierOffsetsFromBodies();
 
-    final Vector2 v = leader.body.linearVelocity;
+    final Vector2 v = _leaderBody.linearVelocity;
     velocityHud.value = Vector2(v.x, v.y);
   }
 }
 
-class EnemyCohort {
-  EnemyCohort({
-    required this.position,
-    required this.runtime,
+/// One enemy unit: a single [CohortSoldier] (visual + contact) and its Forge2D body.
+/// There is no enemy cohort—only independent soldiers.
+class EnemySoldier {
+  EnemySoldier({
+    required this.soldier,
+    required this.body,
   });
 
-  Vector2 position;
-  final CohortRuntime runtime;
-  /// Index in [CohortWarGame.enemyCohorts] (set in [CohortWarGame.onLoad]).
-  int cohortIndex = 0;
-  final List<SoldierContactBody> soldierBodies = <SoldierContactBody>[];
+  final CohortSoldier soldier;
+  final SoldierContactBody body;
 }
 
-/// Solid **detection** disk (lowest render layer among range visuals).
+/// **Detection** disk layer (100% transparent; radii use [kSoldierDetectionRangeRadiusScale]).
 class _PlayerSoldierDetectionRangeLayer extends Component {
   _PlayerSoldierDetectionRangeLayer({
     required this.runtime,
@@ -668,7 +614,7 @@ class _PlayerSoldierDetectionRangeLayer extends Component {
   final CohortRuntime runtime;
   final Vector2 Function(int index) soldierWorldPosition;
 
-  static final Paint _fill = Paint()..color = const Color(0xFFBBDEFB);
+  static final Paint _fill = Paint()..color = Colors.transparent;
 
   @override
   int get priority => -1001;
@@ -677,14 +623,14 @@ class _PlayerSoldierDetectionRangeLayer extends Component {
   void render(Canvas canvas) {
     for (int i = 0; i < runtime.soldierCount; i++) {
       final CohortSoldier s = runtime.soldier(i);
-      final double r = s.contact.radius * _detectionRangeRadiusScale;
+      final double r = s.contact.radius * kSoldierDetectionRangeRadiusScale;
       final Vector2 p = soldierWorldPosition(i);
       canvas.drawCircle(Offset(p.x, p.y), r, _fill);
     }
   }
 }
 
-/// Solid **attack** disk; one priority step above [_PlayerSoldierDetectionRangeLayer].
+/// **Attack** disk layer (100% transparent; radii use [kSoldierAttackRangeRadiusScale]).
 class _PlayerSoldierAttackRangeLayer extends Component {
   _PlayerSoldierAttackRangeLayer({
     required this.runtime,
@@ -694,7 +640,7 @@ class _PlayerSoldierAttackRangeLayer extends Component {
   final CohortRuntime runtime;
   final Vector2 Function(int index) soldierWorldPosition;
 
-  static final Paint _fill = Paint()..color = const Color(0xFFC8E6C9);
+  static final Paint _fill = Paint()..color = Colors.transparent;
 
   @override
   int get priority => -1000;
@@ -703,35 +649,11 @@ class _PlayerSoldierAttackRangeLayer extends Component {
   void render(Canvas canvas) {
     for (int i = 0; i < runtime.soldierCount; i++) {
       final CohortSoldier s = runtime.soldier(i);
-      final double r = s.contact.radius * _attackRangeRadiusScale;
+      final double r = s.contact.radius * kSoldierAttackRangeRadiusScale;
       final Vector2 p = soldierWorldPosition(i);
       canvas.drawCircle(Offset(p.x, p.y), r, _fill);
     }
   }
-}
-
-class CohortLeader extends BodyComponent<CohortWarGame> {
-  CohortLeader({required Vector2 start})
-    : super(
-        renderBody: false,
-        bodyDef: BodyDef(
-          type: BodyType.dynamic,
-          position: start,
-          linearDamping: 5.2,
-          angularDamping: 0.9,
-          fixedRotation: true,
-        ),
-        fixtureDefs: <FixtureDef>[
-          FixtureDef(
-            CircleShape()..radius = 2.8,
-            density: 1.2,
-            friction: 0.2,
-            filter: Filter()
-              ..categoryBits = 0x0001
-              ..maskBits = 0x0000,
-          ),
-        ],
-      );
 }
 
 class PlayerFormationPainter extends Component {
@@ -761,27 +683,52 @@ class PlayerFormationPainter extends Component {
       canvas.translate(p.x, p.y);
       canvas.rotate(angle);
       canvas.translate(-half, -half);
-      TriangleSoldierPainter(side: m.side).paint(
-        canvas,
-        Size(m.paintSize, m.paintSize),
-      );
+      final Size sz = Size(m.paintSize, m.paintSize);
+      if (m.design != null && m.displayPalette != null) {
+        final List<SoldierShapePart> parts = m.design!.parts;
+        final double fit = MultiPolygonSoldierPainter.layoutMetrics(
+          parts: parts,
+          soldierCanvasSize: sz,
+          motionT: 0.25,
+          attackCycleT: null,
+        ).fitScale;
+        final Offset anchor = MultiPolygonSoldierPainter.modelBboxCenter(
+          parts: parts,
+          motionT: 0.25,
+          attackCycleT: null,
+        );
+        MultiPolygonSoldierPainter(
+          parts: parts,
+          displayPalette: m.displayPalette!,
+          strokeWidth: 2.25,
+          motionT: 0.25,
+          attackCycleT: null,
+          uniformWorldScale: fit,
+          fixedModelAnchor: anchor,
+          paintCrownFlames: m.design!.paintCrownFlames,
+        ).paint(canvas, sz);
+      } else {
+        TriangleSoldierPainter(side: m.side).paint(canvas, sz);
+      }
       SoldierContactPainter(radius: sc.radius, strokeWidth: 2.5).paint(
         canvas,
-        Size(m.paintSize, m.paintSize),
+        sz,
       );
       canvas.restore();
     }
   }
 }
 
-class EnemyFormationPainter extends Component {
-  EnemyFormationPainter({
-    required this.runtime,
+class EnemySoldiersPainter extends Component {
+  EnemySoldiersPainter({
+    required this.enemyCount,
+    required this.soldier,
     required this.soldierWorldPosition,
     required this.visualAngleForSoldier,
   });
 
-  final CohortRuntime runtime;
+  final int enemyCount;
+  final CohortSoldier Function(int index) soldier;
   final Vector2 Function(int index) soldierWorldPosition;
   final double Function(int index) visualAngleForSoldier;
 
@@ -790,8 +737,8 @@ class EnemyFormationPainter extends Component {
 
   @override
   void render(Canvas canvas) {
-    for (int i = 0; i < runtime.soldierCount; i++) {
-      final CohortSoldier s = runtime.soldier(i);
+    for (int i = 0; i < enemyCount; i++) {
+      final CohortSoldier s = soldier(i);
       final SoldierModel m = s.model;
       final SoldierContact sc = s.contact;
       final Vector2 p = soldierWorldPosition(i);

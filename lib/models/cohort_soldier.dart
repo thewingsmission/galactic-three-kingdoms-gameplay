@@ -2,6 +2,8 @@ import 'package:flame/extensions.dart';
 
 import '../widgets/isosceles_triangle_vertices.dart';
 import 'cohort_models.dart';
+import 'soldier_design.dart';
+import 'soldier_design_palette.dart';
 
 /// Visual layer: intrinsic shape only (no position, velocity, or animation vs the soldier).
 /// Renders **rigidly** at the soldier origin; all motion is on [CohortSoldier.localOffset].
@@ -11,6 +13,8 @@ class SoldierModel {
     this.side = 40,
     this.paintSize = 56,
     this.isEnemy = false,
+    this.design,
+    this.displayPalette,
   });
 
   final SoldierType type;
@@ -19,6 +23,9 @@ class SoldierModel {
   /// Canvas extent for [TriangleSoldierPainter] / [OrangeTrianglePainter].
   final double paintSize;
   final bool isEnemy;
+  /// Player polygon sprite; null ⇒ triangle painter.
+  final SoldierDesign? design;
+  final SoldierDesignPalette? displayPalette;
 }
 
 /// Contact layer: circle radius (world units) derived from triangle short side; no motion vs soldier.

@@ -4,6 +4,7 @@ import 'package:flame/extensions.dart';
 
 import '../models/cohort_models.dart';
 import '../models/cohort_soldier.dart';
+import '../models/soldier_design_combat_metrics.dart';
 
 /// Default radius used when placing the first soldier on the inventory ring (`(0,-1)*r`).
 const double kCohortFormationRadius = 78;
@@ -50,13 +51,22 @@ class CohortRuntime {
   factory CohortRuntime.fromDeployment(CohortDeployment d) {
     final List<CohortSoldier> soldiers = d.soldiers.map((PlacedSoldier s) {
       final Vector2 slot = Vector2(s.localOffset.dx, s.localOffset.dy);
+      final SoldierModel model = SoldierModel(
+        type: s.type,
+        side: 40,
+        paintSize: 56,
+        isEnemy: false,
+        design: s.soldierDesign,
+        displayPalette: s.soldierDesign != null ? s.cohortPalette : null,
+      );
+      final SoldierContact? contactOverride = s.soldierDesign != null
+          ? SoldierContact(
+              radius: combatContactRadiusWorld(s.soldierDesign!.parts),
+            )
+          : null;
       return CohortSoldier(
-        model: SoldierModel(
-          type: s.type,
-          side: 40,
-          paintSize: 56,
-          isEnemy: false,
-        ),
+        model: model,
+        contact: contactOverride,
         canonicalSlot: slot,
         localOffset: Vector2(slot.x, slot.y),
       );
