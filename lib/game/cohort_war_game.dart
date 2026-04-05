@@ -1173,6 +1173,8 @@ class _WarContactZoneLayer extends Component {
   final _SoldierAccessor player;
   final _SoldierAccessor enemy;
 
+  static bool visible = false;
+
   static final Paint _stroke = Paint()
     ..color = const Color(0xFF00C853).withValues(alpha: 0.7)
     ..style = PaintingStyle.stroke
@@ -1218,6 +1220,7 @@ class _WarContactZoneLayer extends Component {
 
   @override
   void render(Canvas canvas) {
+    if (!visible) return;
     for (int i = 0; i < player.count; i++) {
       if (!player.alive(i)) continue;
       _paint(canvas, player.soldier(i), player.position(i), player.angle(i));
@@ -1234,6 +1237,8 @@ class _WarEngagementZoneLayer extends Component {
   _WarEngagementZoneLayer({required this.player, required this.enemy});
   final _SoldierAccessor player;
   final _SoldierAccessor enemy;
+
+  static bool visible = false;
 
   static final Paint _stroke = Paint()
     ..color = const Color(0xFF2E7D32).withValues(alpha: 0.7)
@@ -1262,6 +1267,7 @@ class _WarEngagementZoneLayer extends Component {
 
   @override
   void render(Canvas canvas) {
+    if (!visible) return;
     for (int i = 0; i < player.count; i++) {
       if (!player.alive(i)) continue;
       _paint(canvas, player.soldier(i), player.position(i), player.angle(i));
@@ -1288,6 +1294,8 @@ class _WarAttackZoneLayer extends Component {
   final _SoldierAccessor enemy;
   final double? Function(int) playerAttackCycleT;
   final double? Function(int) enemyAttackCycleT;
+
+  static bool visible = false;
 
   static const double _crownRadiusMul = 1.32;
 
@@ -1351,6 +1359,7 @@ class _WarAttackZoneLayer extends Component {
 
   @override
   void render(Canvas canvas) {
+    if (!visible) return;
     for (int i = 0; i < player.count; i++) {
       if (!player.alive(i)) continue;
       _draw(canvas, player.soldier(i), player.position(i), player.angle(i), playerAttackCycleT(i));
@@ -1368,6 +1377,8 @@ class _WarDetectionZoneLayer extends Component {
   final _SoldierAccessor player;
   final _SoldierAccessor enemy;
 
+  static bool visible = false;
+
   static final Paint _stroke = Paint()
     ..color = const Color(0xFF40C4FF).withValues(alpha: 0.55)
     ..style = PaintingStyle.stroke
@@ -1378,6 +1389,7 @@ class _WarDetectionZoneLayer extends Component {
 
   @override
   void render(Canvas canvas) {
+    if (!visible) return;
     void draw(CohortSoldier s, Vector2 p) {
       canvas.drawCircle(
         Offset(p.x, p.y),
@@ -1535,6 +1547,8 @@ class _WarCenterDotLayer extends Component {
   final _SoldierAccessor player;
   final _SoldierAccessor enemy;
 
+  static bool visible = false;
+
   static final Paint _fill = Paint()..color = const Color(0xFF14532D).withValues(alpha: 0.98);
   static const double _dotR = 2.5;
 
@@ -1543,6 +1557,7 @@ class _WarCenterDotLayer extends Component {
 
   @override
   void render(Canvas canvas) {
+    if (!visible) return;
     for (int i = 0; i < player.count; i++) {
       if (!player.alive(i)) continue;
       final Vector2 p = player.position(i);
