@@ -283,17 +283,24 @@ const double kAttackCycleSeconds = SoldierAttackSpec.kPreviewCycleSeconds;
 class CohortWarGame extends Forge2DGame {
   CohortWarGame({
     required CohortDeployment deployment,
+    required this.playerPalette,
     required this.velocityHud,
     required this.soldier1PosHud,
   }) : _deployment = deployment,
+       _enemyPalettes = SoldierDesignPalette.values
+           .where((SoldierDesignPalette p) => p != playerPalette)
+           .toList(),
        super(
          gravity: Vector2.zero(),
          zoom: 1,
        );
 
   final CohortDeployment _deployment;
+  final SoldierDesignPalette playerPalette;
+  final List<SoldierDesignPalette> _enemyPalettes;
   final ValueNotifier<Vector2> velocityHud;
   final ValueNotifier<Vector2> soldier1PosHud;
+  final ValueNotifier<bool> gameOver = ValueNotifier<bool>(false);
 
   Vector2 stick = Vector2.zero();
 
@@ -360,14 +367,25 @@ class CohortWarGame extends Forge2DGame {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
-    // Default 10/10: dense circles + formation can leave contacts under-resolved; a bit more solver work.
     velocityIterations = 12;
     positionIterations = 12;
 
     playerCohort = CohortRuntime.fromDeployment(_deployment);
+    debugPrint('[CohortWarGame] playerCohort.soldierCount=${playerCohort.soldierCount}');
 
     final Vector2 start =
         size.x > 0 && size.y > 0 ? size / 2 : Vector2(400, 240);
+
+    _enemyAttackPlayerEntry = <Map<String, double>>[];
+    _enemyDetectionPlayerEntry = <Map<String, double>>[];
+    _lastEnemySoldierFacing = <double>[];
+    _enemyHp = <int>[];
+    _enemyMaxHp = <int>[];
+    _enemyAttackCycleT = <double>[];
+    _enemyLockedPlayer = <String?>[];
+    _enemyDamagedThisPhase = <Set<String>>[];
+    _enemyWasInAttackPhase = <bool>[];
+    _enemyAlive = <bool>[];
 
     _spawnEnemySoldiers(start);
 
@@ -399,16 +417,6 @@ class CohortWarGame extends Forge2DGame {
       playerCohort.soldierCount,
       (_) => playerCohort.visualAngle,
     );
-    _enemyAttackPlayerEntry = List<Map<String, double>>.generate(
-      enemySoldiers.length,
-      (_) => <String, double>{},
-    );
-    _enemyDetectionPlayerEntry = List<Map<String, double>>.generate(
-      enemySoldiers.length,
-      (_) => <String, double>{},
-    );
-    _lastEnemySoldierFacing = List<double>.filled(enemySoldiers.length, 0);
-
     _playerHp = List<int>.filled(playerCohort.soldierCount, kGildedBastionMaxHp);
     _playerMaxHp = List<int>.filled(playerCohort.soldierCount, kGildedBastionMaxHp);
     _playerAttackCycleT = List<double>.filled(playerCohort.soldierCount, 0);
@@ -420,30 +428,15 @@ class CohortWarGame extends Forge2DGame {
     _playerWasInAttackPhase = List<bool>.filled(playerCohort.soldierCount, false);
     _playerAlive = List<bool>.filled(playerCohort.soldierCount, true);
 
-    _enemyHp = List<int>.filled(enemySoldiers.length, kGildedBastionMaxHp);
-    _enemyMaxHp = List<int>.filled(enemySoldiers.length, kGildedBastionMaxHp);
-    _enemyAttackCycleT = List<double>.filled(enemySoldiers.length, 0);
-    _enemyLockedPlayer = List<String?>.filled(enemySoldiers.length, null);
-    _enemyDamagedThisPhase = List<Set<String>>.generate(
-      enemySoldiers.length,
-      (_) => <String>{},
-    );
-    _enemyWasInAttackPhase = List<bool>.filled(enemySoldiers.length, false);
-    _enemyAlive = List<bool>.filled(enemySoldiers.length, true);
-
-    for (final EnemySoldier e in enemySoldiers) {
-      await world.add(e.body);
-    }
-
     final _SoldierAccessor playerAccessor = (
-      count: playerCohort.soldierCount,
+      count: () => playerCohort.soldierCount,
       soldier: (int i) => playerCohort.soldier(i),
       position: (int i) => playerSoldierBodies[i].body.position,
       angle: (int i) => _playerSoldierRenderAngle(i),
       alive: (int i) => _playerAlive[i],
     );
     final _SoldierAccessor enemyAccessor = (
-      count: enemySoldiers.length,
+      count: () => enemySoldiers.length,
       soldier: (int i) => enemySoldiers[i].soldier,
       position: (int i) => enemySoldiers[i].body.body.position,
       angle: (int i) => _enemySoldierRenderAngle(i),
@@ -452,7 +445,7 @@ class CohortWarGame extends Forge2DGame {
 
     await world.add(
       EnemySoldiersPainter(
-        enemyCount: enemySoldiers.length,
+        enemyCount: () => enemySoldiers.length,
         soldier: (int i) => enemySoldiers[i].soldier,
         soldierWorldPosition: (int i) => enemySoldiers[i].body.body.position,
         visualAngleForSoldier: _enemySoldierRenderAngle,
@@ -517,7 +510,6 @@ class CohortWarGame extends Forge2DGame {
   }
 
   Vector2 _enemyWorldPosFromKey(String key) {
-    // Keys: "e-0", "e-1", …
     final int ei = int.parse(key.substring(2));
     return enemySoldiers[ei].body.body.position;
   }
@@ -525,6 +517,12 @@ class CohortWarGame extends Forge2DGame {
   Vector2 _playerWorldPosFromKey(String key) {
     final int j = int.parse(key.substring(2));
     return playerSoldierBodies[j].body.position;
+  }
+
+  /// Resolve any target key ('p-N' or 'e-N') to world position.
+  Vector2 _targetWorldPos(String key) {
+    if (key.startsWith('p-')) return _playerWorldPosFromKey(key);
+    return _enemyWorldPosFromKey(key);
   }
 
   void _updateRangeEntryMaps() {
@@ -575,6 +573,14 @@ class CohortWarGame extends Forge2DGame {
         final Vector2 c = playerSoldierBodies[pj].body.position;
         if ((c - pos).length2 <= rD2) inD.add(k);
         if (_playerContactInEnemyEngagementZone(ei, k)) inA.add(k);
+      }
+      for (int ej = 0; ej < enemySoldiers.length; ej++) {
+        if (ej == ei || !_enemyAlive[ej]) continue;
+        if (enemySoldiers[ej].palette == es.palette) continue;
+        final String k = 'e-$ej';
+        final Vector2 c = enemySoldiers[ej].body.body.position;
+        if ((c - pos).length2 <= rD2) inD.add(k);
+        if (_rivalContactInEnemyEngagementZone(ei, ej)) inA.add(k);
       }
       _enemyAttackPlayerEntry[ei]
           .removeWhere((String k, double _) => !inA.contains(k));
@@ -647,7 +653,46 @@ class CohortWarGame extends Forge2DGame {
     );
   }
 
-  String? _earliestPlayerInEngagementForEnemy(int enemyIndex) {
+  bool _rivalContactInEnemyAttackZone(int attackerEi, int targetEj) {
+    final CohortSoldier attacker = enemySoldiers[attackerEi].soldier;
+    final Vector2 aPos = enemySoldiers[attackerEi].body.body.position;
+    final double aAngle = _lastEnemySoldierFacing[attackerEi];
+    final double? aCycleT =
+        _enemyLockedPlayer[attackerEi] != null ? _enemyAttackCycleT[attackerEi] : null;
+    final ({Vector2 center, double radius}) az =
+        attackZoneWorldCircle(attacker, aPos, aAngle, aCycleT);
+    final CohortSoldier target = enemySoldiers[targetEj].soldier;
+    final Vector2 tPos = enemySoldiers[targetEj].body.body.position;
+    final double tAngle = _lastEnemySoldierFacing[targetEj];
+    return contactOverlapsAttackCircle(
+      contact: target.contact,
+      contactBodyPos: tPos,
+      contactAngle: tAngle,
+      attackCenter: az.center,
+      attackRadius: az.radius,
+    );
+  }
+
+  bool _rivalContactInEnemyEngagementZone(int attackerEi, int targetEj) {
+    final CohortSoldier attacker = enemySoldiers[attackerEi].soldier;
+    final Vector2 aPos = enemySoldiers[attackerEi].body.body.position;
+    final double aAngle = _lastEnemySoldierFacing[attackerEi];
+    if (!attacker.contact.hasEngagement) return false;
+    final List<Vector2>? engVerts =
+        engagementZoneWorldVerts(attacker.contact, aPos, aAngle);
+    if (engVerts == null) return false;
+    final CohortSoldier target = enemySoldiers[targetEj].soldier;
+    final Vector2 tPos = enemySoldiers[targetEj].body.body.position;
+    final double tAngle = _lastEnemySoldierFacing[targetEj];
+    return contactOverlapsEngagementPoly(
+      contact: target.contact,
+      contactBodyPos: tPos,
+      contactAngle: tAngle,
+      engagementWorldVerts: engVerts,
+    );
+  }
+
+  String? _earliestTargetInEngagementForEnemy(int enemyIndex) {
     final Set<String> inA = <String>{};
     for (int pj = 0; pj < playerSoldierBodies.length; pj++) {
       if (!_playerAlive[pj]) continue;
@@ -655,18 +700,32 @@ class CohortWarGame extends Forge2DGame {
         inA.add('p-$pj');
       }
     }
+    for (int ej = 0; ej < enemySoldiers.length; ej++) {
+      if (ej == enemyIndex || !_enemyAlive[ej]) continue;
+      if (enemySoldiers[ej].palette == enemySoldiers[enemyIndex].palette) continue;
+      if (_rivalContactInEnemyEngagementZone(enemyIndex, ej)) {
+        inA.add('e-$ej');
+      }
+    }
     return _earliestKeyInSet(inA, _enemyAttackPlayerEntry[enemyIndex]);
   }
 
-  String? _earliestPlayerInDetectionForEnemy(int enemyIndex) {
+  String? _earliestTargetInDetectionForEnemy(int enemyIndex) {
     final EnemySoldier es = enemySoldiers[enemyIndex];
     final Vector2 pos = es.body.body.position;
     final double rD = soldierDetectionRadiusWorld(es.soldier);
     final double rD2 = rD * rD;
     final Set<String> inD = <String>{};
     for (int pj = 0; pj < playerSoldierBodies.length; pj++) {
+      if (!_playerAlive[pj]) continue;
       final Vector2 c = playerSoldierBodies[pj].body.position;
       if ((c - pos).length2 <= rD2) inD.add('p-$pj');
+    }
+    for (int ej = 0; ej < enemySoldiers.length; ej++) {
+      if (ej == enemyIndex || !_enemyAlive[ej]) continue;
+      if (enemySoldiers[ej].palette == es.palette) continue;
+      final Vector2 c = enemySoldiers[ej].body.body.position;
+      if ((c - pos).length2 <= rD2) inD.add('e-$ej');
     }
     return _earliestKeyInSet(inD, _enemyDetectionPlayerEntry[enemyIndex]);
   }
@@ -773,18 +832,18 @@ class CohortWarGame extends Forge2DGame {
     final EnemySoldier es = enemySoldiers[enemyIndex];
     final bool moving = _enemySoldierMoving(enemyIndex);
     final Vector2 p = es.body.body.position;
-    final String? pa = _earliestPlayerInEngagementForEnemy(enemyIndex);
-    final String? pd = _earliestPlayerInDetectionForEnemy(enemyIndex);
+    final String? pa = _earliestTargetInEngagementForEnemy(enemyIndex);
+    final String? pd = _earliestTargetInDetectionForEnemy(enemyIndex);
     double angle;
 
     // Order: attack / detection first; avoids flicker when chase speed crosses [_enemySoldierMovingVel].
     if (pa != null) {
-      final Vector2 d = _playerWorldPosFromKey(pa) - p;
+      final Vector2 d = _targetWorldPos(pa) - p;
       angle = d.length2 < 1e-12
           ? _lastEnemySoldierFacing[enemyIndex]
           : _aimAngleToward(d);
     } else if (pd != null) {
-      final Vector2 d = _playerWorldPosFromKey(pd) - p;
+      final Vector2 d = _targetWorldPos(pd) - p;
       angle = d.length2 < 1e-12
           ? _lastEnemySoldierFacing[enemyIndex]
           : _aimAngleToward(d);
@@ -835,27 +894,77 @@ class CohortWarGame extends Forge2DGame {
     for (int ei = 0; ei < enemySoldiers.length; ei++) {
       if (!_enemyAlive[ei]) continue;
       if (_enemySoldierMoving(ei)) continue;
-      final String? pd = _earliestPlayerInDetectionForEnemy(ei);
+      final String? pd = _earliestTargetInDetectionForEnemy(ei);
       if (pd == null) continue;
-      if (_playerContactInEnemyEngagementZone(ei, pd)) {
+      final bool engaged = pd.startsWith('p-')
+          ? _playerContactInEnemyEngagementZone(ei, pd)
+          : _rivalContactInEnemyEngagementZone(ei, int.parse(pd.substring(2)));
+      if (engaged) {
         enemySoldiers[ei].body.body.linearVelocity.setZero();
         continue;
       }
       _applyChaseVelocityToward(
         enemySoldiers[ei].body.body,
-        _playerWorldPosFromKey(pd),
+        _targetWorldPos(pd),
       );
     }
   }
 
+  // ── Enemy spawn config ──────────────────────────────────────────────
+  static const int _initialEnemyCount = 24;
+  static const double _waveIntervalSec = 2;
+  static const int _waveSize = 10;
+  static const int _maxAliveEnemies = 240;
+  static const double _spawnRingMin = 200;
+  static const double _spawnRingMax = 450;
+
+  final math.Random _spawnRng = math.Random();
+  double _nextWaveTime = _waveIntervalSec;
+  int _waveNumber = 0;
+
   void _spawnEnemySoldiers(Vector2 center) {
     final math.Random rng = math.Random(21);
-    const int enemyCount = 12;
-    const double scatterHalfWidth = 450;
-    const double scatterHalfHeight = 350;
+    final double detectionR =
+        soldierDetectionRadiusWorld(playerCohort.soldier(0));
+    final double minDist = detectionR + 60;
 
+    for (int i = 0; i < _initialEnemyCount; i++) {
+      final double angle = rng.nextDouble() * 2 * math.pi;
+      final double r =
+          minDist + rng.nextDouble() * (_spawnRingMax - minDist).clamp(0, 400);
+      final Vector2 worldPos =
+          center + Vector2(math.cos(angle) * r, math.sin(angle) * r);
+      _addOneEnemy(worldPos);
+    }
+  }
+
+  int _aliveEnemyCount() {
+    int c = 0;
+    for (int i = 0; i < _enemyAlive.length; i++) {
+      if (_enemyAlive[i]) c++;
+    }
+    return c;
+  }
+
+  void _spawnEnemyWave() {
+    _waveNumber++;
+    final Vector2 playerCenter = _leaderBody.position;
+    final int count = (_waveSize + (_waveNumber ~/ 3)).clamp(1, 10);
+    for (int i = 0; i < count; i++) {
+      if (_aliveEnemyCount() >= _maxAliveEnemies) return;
+      final double angle = _spawnRng.nextDouble() * 2 * math.pi;
+      final double r =
+          _spawnRingMin + _spawnRng.nextDouble() * (_spawnRingMax - _spawnRingMin);
+      final Vector2 worldPos =
+          playerCenter + Vector2(math.cos(angle) * r, math.sin(angle) * r);
+      _addOneEnemy(worldPos);
+    }
+  }
+
+  void _addOneEnemy(Vector2 worldPos) {
+    final SoldierDesignPalette enemyPalette =
+        _enemyPalettes[_spawnRng.nextInt(_enemyPalettes.length)];
     final SoldierDesign enemyDesign = kProductionSoldierDesignCatalog.first;
-    const SoldierDesignPalette enemyPalette = SoldierDesignPalette.red;
     final SoldierModel enemyModel = SoldierModel(
       side: 40,
       paintSize: 56,
@@ -863,28 +972,28 @@ class CohortWarGame extends Forge2DGame {
       design: enemyDesign,
       displayPalette: enemyPalette,
     );
+    final SoldierContact enemyContact =
+        SoldierContact.fromDesign(enemyDesign, enemyModel.paintSize);
+    final CohortSoldier s = CohortSoldier(
+      model: enemyModel,
+      canonicalSlot: Vector2.zero(),
+      localOffset: Vector2.zero(),
+      contact: enemyContact,
+    );
+    final SoldierContactBody body = _bodyFromContact(enemyContact, worldPos);
+    enemySoldiers.add(EnemySoldier(soldier: s, body: body, palette: enemyPalette));
+    world.add(body);
 
-    for (int i = 0; i < enemyCount; i++) {
-      final Vector2 worldPos = center +
-          Vector2(
-            (rng.nextDouble() - 0.5) * 2 * scatterHalfWidth,
-            (rng.nextDouble() - 0.5) * 2 * scatterHalfHeight,
-          );
-      final SoldierContact enemyContact =
-          SoldierContact.fromDesign(enemyDesign, enemyModel.paintSize);
-      final CohortSoldier s = CohortSoldier(
-        model: enemyModel,
-        canonicalSlot: Vector2.zero(),
-        localOffset: Vector2.zero(),
-        contact: enemyContact,
-      );
-      enemySoldiers.add(
-        EnemySoldier(
-          soldier: s,
-          body: _bodyFromContact(enemyContact, worldPos),
-        ),
-      );
-    }
+    _enemyAttackPlayerEntry.add(<String, double>{});
+    _enemyDetectionPlayerEntry.add(<String, double>{});
+    _lastEnemySoldierFacing.add(0);
+    _enemyHp.add(kGildedBastionMaxHp);
+    _enemyMaxHp.add(kGildedBastionMaxHp);
+    _enemyAttackCycleT.add(0);
+    _enemyLockedPlayer.add(null);
+    _enemyDamagedThisPhase.add(<String>{});
+    _enemyWasInAttackPhase.add(false);
+    _enemyAlive.add(true);
   }
 
   void _steer() {
@@ -958,6 +1067,7 @@ class CohortWarGame extends Forge2DGame {
 
   @override
   void update(double dt) {
+    if (gameOver.value) return;
     _snapshotVelocitiesBeforeStep();
     _steer();
     playerCohort.update(dt, stick, integratePositions: false);
@@ -972,6 +1082,11 @@ class CohortWarGame extends Forge2DGame {
     _syncSoldierOffsetsFromBodies();
 
     _updateCombat(dt);
+
+    if (_warTime >= _nextWaveTime && _aliveEnemyCount() < _maxAliveEnemies) {
+      _spawnEnemyWave();
+      _nextWaveTime = _warTime + _waveIntervalSec;
+    }
 
     final Vector2 v = _leaderBody.linearVelocity;
     velocityHud.value = Vector2(v.x, v.y);
@@ -1050,11 +1165,11 @@ class CohortWarGame extends Forge2DGame {
       }
     }
 
-    // --- Enemy soldiers ---
+    // --- Enemy soldiers (target = player OR rival enemy) ---
     for (int ei = 0; ei < enemySoldiers.length; ei++) {
       if (!_enemyAlive[ei]) continue;
 
-      final String? detected = _earliestPlayerInDetectionForEnemy(ei);
+      final String? detected = _earliestTargetInDetectionForEnemy(ei);
       if (detected == null) {
         _enemyLockedPlayer[ei] = null;
         _enemyAttackCycleT[ei] = 0;
@@ -1071,8 +1186,12 @@ class CohortWarGame extends Forge2DGame {
       }
       final String locked = _enemyLockedPlayer[ei]!;
 
-      final int pj = int.parse(locked.substring(2));
-      if (pj >= playerCohort.soldierCount || !_playerAlive[pj]) {
+      final bool targetAlive = locked.startsWith('p-')
+          ? (int.parse(locked.substring(2)) < playerCohort.soldierCount &&
+              _playerAlive[int.parse(locked.substring(2))])
+          : (int.parse(locked.substring(2)) < enemySoldiers.length &&
+              _enemyAlive[int.parse(locked.substring(2))]);
+      if (!targetAlive) {
         _enemyLockedPlayer[ei] = detected != locked ? detected : null;
         _enemyAttackCycleT[ei] = 0;
         _enemyDamagedThisPhase[ei].clear();
@@ -1080,7 +1199,10 @@ class CohortWarGame extends Forge2DGame {
         continue;
       }
 
-      final bool engaged = _playerContactInEnemyEngagementZone(ei, locked);
+      final bool engaged = locked.startsWith('p-')
+          ? _playerContactInEnemyEngagementZone(ei, locked)
+          : _rivalContactInEnemyEngagementZone(
+              ei, int.parse(locked.substring(2)));
       if (!engaged) {
         _enemyAttackCycleT[ei] = 0;
         _enemyDamagedThisPhase[ei].clear();
@@ -1097,11 +1219,19 @@ class CohortWarGame extends Forge2DGame {
       _enemyWasInAttackPhase[ei] = inAttack;
 
       if (inAttack && !_enemyDamagedThisPhase[ei].contains(locked)) {
-        if (_playerContactInEnemyAttackZone(ei, locked)) {
-          _enemyDamagedThisPhase[ei].add(locked);
-          _playerHp[pj] = (_playerHp[pj] - 1).clamp(0, _playerMaxHp[pj]);
-          if (_playerHp[pj] <= 0) {
-            _killPlayer(pj);
+        if (locked.startsWith('p-')) {
+          if (_playerContactInEnemyAttackZone(ei, locked)) {
+            _enemyDamagedThisPhase[ei].add(locked);
+            final int pj = int.parse(locked.substring(2));
+            _playerHp[pj] = (_playerHp[pj] - 1).clamp(0, _playerMaxHp[pj]);
+            if (_playerHp[pj] <= 0) _killPlayer(pj);
+          }
+        } else {
+          final int ej = int.parse(locked.substring(2));
+          if (_rivalContactInEnemyAttackZone(ei, ej)) {
+            _enemyDamagedThisPhase[ei].add(locked);
+            _enemyHp[ej] = (_enemyHp[ej] - 1).clamp(0, _enemyMaxHp[ej]);
+            if (_enemyHp[ej] <= 0) _killEnemy(ej);
           }
         }
       }
@@ -1121,6 +1251,14 @@ class CohortWarGame extends Forge2DGame {
         _playerWasInAttackPhase[i] = false;
       }
     }
+    for (int ej = 0; ej < enemySoldiers.length; ej++) {
+      if (_enemyLockedPlayer[ej] == 'e-$ei') {
+        _enemyLockedPlayer[ej] = null;
+        _enemyAttackCycleT[ej] = 0;
+        _enemyDamagedThisPhase[ej].clear();
+        _enemyWasInAttackPhase[ej] = false;
+      }
+    }
   }
 
   void _killPlayer(int pj) {
@@ -1128,6 +1266,9 @@ class CohortWarGame extends Forge2DGame {
     world.remove(playerSoldierBodies[pj]);
     _playerLockedEnemy[pj] = null;
     _playerAttackCycleT[pj] = 0;
+    if (pj == 0) {
+      gameOver.value = true;
+    }
     for (int ei = 0; ei < enemySoldiers.length; ei++) {
       if (_enemyLockedPlayer[ei] == 'p-$pj') {
         _enemyLockedPlayer[ei] = null;
@@ -1145,10 +1286,12 @@ class EnemySoldier {
   EnemySoldier({
     required this.soldier,
     required this.body,
+    required this.palette,
   });
 
   final CohortSoldier soldier;
   final SoldierContactBody body;
+  final SoldierDesignPalette palette;
 }
 
 /// Draws zone overlays per soldier following [soldier_structure.md] hierarchy:
@@ -1160,7 +1303,7 @@ class EnemySoldier {
 ///   • [_WarDetectionZoneLayer] (priority 23) — above attack zone.
 
 typedef _SoldierAccessor = ({
-  int count,
+  int Function() count,
   CohortSoldier Function(int) soldier,
   Vector2 Function(int) position,
   double Function(int) angle,
@@ -1221,11 +1364,11 @@ class _WarContactZoneLayer extends Component {
   @override
   void render(Canvas canvas) {
     if (!visible) return;
-    for (int i = 0; i < player.count; i++) {
+    for (int i = 0; i < player.count(); i++) {
       if (!player.alive(i)) continue;
       _paint(canvas, player.soldier(i), player.position(i), player.angle(i));
     }
-    for (int i = 0; i < enemy.count; i++) {
+    for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       _paint(canvas, enemy.soldier(i), enemy.position(i), enemy.angle(i));
     }
@@ -1268,11 +1411,11 @@ class _WarEngagementZoneLayer extends Component {
   @override
   void render(Canvas canvas) {
     if (!visible) return;
-    for (int i = 0; i < player.count; i++) {
+    for (int i = 0; i < player.count(); i++) {
       if (!player.alive(i)) continue;
       _paint(canvas, player.soldier(i), player.position(i), player.angle(i));
     }
-    for (int i = 0; i < enemy.count; i++) {
+    for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       _paint(canvas, enemy.soldier(i), enemy.position(i), enemy.angle(i));
     }
@@ -1360,11 +1503,11 @@ class _WarAttackZoneLayer extends Component {
   @override
   void render(Canvas canvas) {
     if (!visible) return;
-    for (int i = 0; i < player.count; i++) {
+    for (int i = 0; i < player.count(); i++) {
       if (!player.alive(i)) continue;
       _draw(canvas, player.soldier(i), player.position(i), player.angle(i), playerAttackCycleT(i));
     }
-    for (int i = 0; i < enemy.count; i++) {
+    for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       _draw(canvas, enemy.soldier(i), enemy.position(i), enemy.angle(i), enemyAttackCycleT(i));
     }
@@ -1397,11 +1540,11 @@ class _WarDetectionZoneLayer extends Component {
         _stroke,
       );
     }
-    for (int i = 0; i < player.count; i++) {
+    for (int i = 0; i < player.count(); i++) {
       if (!player.alive(i)) continue;
       draw(player.soldier(i), player.position(i));
     }
-    for (int i = 0; i < enemy.count; i++) {
+    for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       draw(enemy.soldier(i), enemy.position(i));
     }
@@ -1482,7 +1625,7 @@ class EnemySoldiersPainter extends Component {
     required this.isAlive,
   });
 
-  final int enemyCount;
+  final int Function() enemyCount;
   final CohortSoldier Function(int index) soldier;
   final Vector2 Function(int index) soldierWorldPosition;
   final double Function(int index) visualAngleForSoldier;
@@ -1494,7 +1637,7 @@ class EnemySoldiersPainter extends Component {
 
   @override
   void render(Canvas canvas) {
-    for (int i = 0; i < enemyCount; i++) {
+    for (int i = 0; i < enemyCount(); i++) {
       if (!isAlive(i)) continue;
       final CohortSoldier s = soldier(i);
       final SoldierModel m = s.model;
@@ -1558,12 +1701,12 @@ class _WarCenterDotLayer extends Component {
   @override
   void render(Canvas canvas) {
     if (!visible) return;
-    for (int i = 0; i < player.count; i++) {
+    for (int i = 0; i < player.count(); i++) {
       if (!player.alive(i)) continue;
       final Vector2 p = player.position(i);
       canvas.drawCircle(Offset(p.x, p.y), _dotR, _fill);
     }
-    for (int i = 0; i < enemy.count; i++) {
+    for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       final Vector2 p = enemy.position(i);
       canvas.drawCircle(Offset(p.x, p.y), _dotR, _fill);
@@ -1636,7 +1779,7 @@ class _WarHpBarLayer extends Component {
   void render(Canvas canvas) {
     final List<int> pHp = playerHp();
     final List<int> pMax = playerMaxHp();
-    for (int i = 0; i < player.count; i++) {
+    for (int i = 0; i < player.count(); i++) {
       if (!player.alive(i)) continue;
       final SoldierDesignPalette? pal = player.soldier(i).model.displayPalette;
       final List<Color> colors =
@@ -1645,7 +1788,7 @@ class _WarHpBarLayer extends Component {
     }
     final List<int> eHp = enemyHp();
     final List<int> eMax = enemyMaxHp();
-    for (int i = 0; i < enemy.count; i++) {
+    for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       final SoldierDesignPalette? pal = enemy.soldier(i).model.displayPalette;
       final List<Color> colors =

@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/cohort_models.dart';
+import '../models/cohort_soldier.dart';
 import '../models/soldier_design.dart';
 import '../models/soldier_design_palette.dart';
+import '../models/soldier_faction_color_theme.dart';
 import '../widgets/soldier_design_catalog.dart';
 import '../widgets/soldier_inventory_tile.dart';
 import 'soldier_design_screen.dart';
@@ -19,6 +21,7 @@ class InventoryScreen extends StatefulWidget {
 
 class _InventoryScreenState extends State<InventoryScreen> {
   static const int _inventorySize = 11;
+  static const int _maxCohortSize = 10;
 
   /// Matches compact [SoldierInventoryTile] preview for cohort stack hit area.
   static const double _kFormationSoldierPx = 40;
@@ -27,22 +30,26 @@ class _InventoryScreenState extends State<InventoryScreen> {
   /// Drag within this distance of the crosshair snaps to exact center (0, 0).
   static const double _centerSnapPx = 14;
 
-  /// Default war roster: production **Gilded Bastion** ×5 on landing.
+  /// Ring radius for the 9 default placement slots around the center soldier.
+  static const double _placementRadius = 46.8;
+
+  /// 360° / 9 = 40° per slot for soldiers 2–10.
+  static const int _ringSlots = 9;
+
+  /// Default war roster: production **Gilded Bastion**.
   static final SoldierDesign _kDefaultRosterUnit =
       kProductionSoldierDesignCatalog.first;
-  static const SoldierDesignPalette _kDefaultRosterPalette =
-      SoldierDesignPalette.yellow;
+
+  SoldierDesignPalette _palette = SoldierDesignPalette.red;
 
   final List<bool> _selected = List<bool>.filled(_inventorySize, false);
   final Map<int, Offset> _offsets = <int, Offset>{};
+  late final SoldierContact _soldierContact;
 
   @override
   void initState() {
     super.initState();
-    for (int i = 0; i < 5; i++) {
-      _selected[i] = true;
-    }
-    _recomputeOffsetsFromSelection();
+    _soldierContact = SoldierContact.fromDesign(_kDefaultRosterUnit, 56);
   }
 
   /// Lowest inventory index among selected soldiers (cohort order); that unit stays on the crosshair.
@@ -53,50 +60,136 @@ class _InventoryScreenState extends State<InventoryScreen> {
     return null;
   }
 
-  void _recomputeOffsetsFromSelection() {
-    _offsets.clear();
-    final List<int> sel = <int>[];
+  int _selectedCount() {
+    int c = 0;
     for (int i = 0; i < _inventorySize; i++) {
-      if (_selected[i]) sel.add(i);
+      if (_selected[i]) c++;
     }
-    const double r = 78;
-    for (int k = 0; k < sel.length; k++) {
-      final int idx = sel[k];
-      if (k == 0) {
-        _offsets[idx] = Offset.zero;
-      } else {
-        final double a = -math.pi / 2 + k * 0.65;
-        _offsets[idx] = Offset(math.cos(a) * r, math.sin(a) * r);
+    return c;
+  }
+
+  // ── Placement helpers ──────────────────────────────────────────────
+
+  /// Try the 9 ring slots (40° each, 12 o'clock first, clockwise).
+  /// Falls back to a random valid position if every slot overlaps.
+  Offset _findValidPosition(int forIndex) {
+    const double step = 2 * math.pi / _ringSlots;
+    for (int s = 0; s < _ringSlots; s++) {
+      final double angle = -math.pi / 2 + s * step;
+      final Offset candidate = Offset(
+        math.cos(angle) * _placementRadius,
+        math.sin(angle) * _placementRadius,
+      );
+      if (!_wouldOverlapAny(candidate, forIndex)) return candidate;
+    }
+    return _findRandomValidPosition(forIndex);
+  }
+
+  Offset _findRandomValidPosition(int forIndex) {
+    final math.Random rng = math.Random();
+    for (int attempt = 0; attempt < 200; attempt++) {
+      final double angle = rng.nextDouble() * 2 * math.pi;
+      final double r =
+          _soldierContact.radius * 2.5 + rng.nextDouble() * _placementRadius;
+      final Offset candidate = Offset(math.cos(angle) * r, math.sin(angle) * r);
+      if (!_wouldOverlapAny(candidate, forIndex)) return candidate;
+    }
+    return Offset(_placementRadius, 0);
+  }
+
+  // ── Contact-zone overlap detection ─────────────────────────────────
+
+  bool _wouldOverlapAny(Offset candidate, int excludeIndex) {
+    for (final MapEntry<int, Offset> entry in _offsets.entries) {
+      if (entry.key == excludeIndex) continue;
+      if (_contactsOverlap(candidate, entry.value)) return true;
+    }
+    return false;
+  }
+
+  bool _contactsOverlap(Offset posA, Offset posB) {
+    final List<Offset>? hull = _soldierContact.hullVertices;
+    if (hull != null && hull.length >= 3) {
+      final List<Offset> polyA = hull.map((Offset v) => v + posA).toList();
+      final List<Offset> polyB = hull.map((Offset v) => v + posB).toList();
+      return _convexPolygonsOverlap(polyA, polyB);
+    }
+    return (posA - posB).distance < 2 * _soldierContact.radius;
+  }
+
+  /// Separating Axis Theorem for two convex polygons.
+  static bool _convexPolygonsOverlap(List<Offset> a, List<Offset> b) {
+    for (final List<Offset> poly in <List<Offset>>[a, b]) {
+      for (int i = 0; i < poly.length; i++) {
+        final Offset edge = poly[(i + 1) % poly.length] - poly[i];
+        final double nx = -edge.dy, ny = edge.dx;
+        double minA = double.infinity, maxA = double.negativeInfinity;
+        double minB = double.infinity, maxB = double.negativeInfinity;
+        for (final Offset v in a) {
+          final double p = v.dx * nx + v.dy * ny;
+          if (p < minA) minA = p;
+          if (p > maxA) maxA = p;
+        }
+        for (final Offset v in b) {
+          final double p = v.dx * nx + v.dy * ny;
+          if (p < minB) minB = p;
+          if (p > maxB) maxB = p;
+        }
+        if (maxA <= minB || maxB <= minA) return false;
       }
     }
+    return true;
   }
 
   void _toggleSlot(int index) {
+    if (!_selected[index] && _selectedCount() >= _maxCohortSize) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cohort is full (max 10 soldiers).')),
+      );
+      return;
+    }
     setState(() {
-      _selected[index] = !_selected[index];
-      _recomputeOffsetsFromSelection();
+      if (_selected[index]) {
+        final int? currentLeader = _firstSelectedIndex();
+        final bool wasLeader = index == currentLeader;
+        _selected[index] = false;
+        _offsets.remove(index);
+        if (wasLeader) {
+          final int? newLeader = _firstSelectedIndex();
+          if (newLeader != null) {
+            _offsets[newLeader] = Offset.zero;
+          }
+        }
+      } else {
+        _selected[index] = true;
+        if (_selectedCount() == 1) {
+          _offsets[index] = Offset.zero;
+        } else {
+          _offsets[index] = _findValidPosition(index);
+        }
+      }
     });
   }
 
   void _onDragSoldier(int index, Offset delta, Size panelSize) {
-    if (index == _firstSelectedIndex()) {
-      return;
-    }
+    if (index == _firstSelectedIndex()) return;
     final Offset half = Offset(panelSize.width / 2, panelSize.height / 2);
     const double margin = 36;
     final double maxX = half.dx - margin;
     final double maxY = half.dy - margin;
-    setState(() {
-      final Offset o = (_offsets[index] ?? Offset.zero) + delta;
-      Offset next = Offset(
-        o.dx.clamp(-maxX, maxX),
-        o.dy.clamp(-maxY, maxY),
-      );
-      if (next.distance <= _centerSnapPx) {
-        next = Offset.zero;
-      }
-      _offsets[index] = next;
-    });
+    final Offset o = (_offsets[index] ?? Offset.zero) + delta;
+    Offset next = Offset(
+      o.dx.clamp(-maxX, maxX),
+      o.dy.clamp(-maxY, maxY),
+    );
+    if (next.distance <= _centerSnapPx) {
+      next = Offset.zero;
+    }
+    if (!_wouldOverlapAny(next, index)) {
+      setState(() {
+        _offsets[index] = next;
+      });
+    }
   }
 
   CohortDeployment _buildDeployment() {
@@ -109,7 +202,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
             type: SoldierType.triangle,
             localOffset: _offsets[i] ?? Offset.zero,
             soldierDesign: _kDefaultRosterUnit,
-            cohortPalette: _kDefaultRosterPalette,
+            cohortPalette: _palette,
           ),
         );
       }
@@ -127,9 +220,38 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => WarScreen(deployment: d.copy()),
+        builder: (BuildContext context) => WarScreen(
+          deployment: d.copy(),
+          playerPalette: _palette,
+        ),
       ),
     );
+  }
+
+  List<Widget> _buildPaletteChips() {
+    return SoldierDesignPalette.values.map((SoldierDesignPalette p) {
+      final bool active = p == _palette;
+      final Color color = factionTierList(p)[0];
+      return Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: GestureDetector(
+          onTap: () => setState(() => _palette = p),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: active ? color : color.withValues(alpha: 0.25),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: active ? Colors.white : Colors.white24,
+                width: active ? 2.5 : 1.25,
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
   }
 
   @override
@@ -158,28 +280,36 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      Text(
-                        'Soldier inventory',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
+                      Row(
+                        children: <Widget>[
+                          Text(
+                            'Soldier inventory',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          const Spacer(),
+                          ..._buildPaletteChips(),
+                        ],
                       ),
                       const SizedBox(height: 10),
                       Expanded(
-                        child: ListView.separated(
+                        child: GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 6,
+                            crossAxisSpacing: 6,
+                            childAspectRatio: 0.78,
+                          ),
                           itemCount: _inventorySize,
-                          separatorBuilder: (BuildContext _, int index) {
-                            assert(index >= 0);
-                            return const SizedBox(height: 6);
-                          },
                           itemBuilder: (BuildContext context, int i) {
                             return SoldierInventoryTile(
                               index: i,
                               selected: _selected[i],
                               onTap: () => _toggleSlot(i),
                               rosterDesign: _kDefaultRosterUnit,
-                              rosterPalette: _kDefaultRosterPalette,
+                              rosterPalette: _palette,
                             );
                           },
                         ),
@@ -288,17 +418,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                       ),
                                 ),
                               ),
-                              Positioned(
-                                left: 16,
-                                top: 40,
-                                right: 16,
-                                child: Text(
-                                  'Drag other soldiers relative to the crosshair. The first selected soldier stays fixed on the crosshair.',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: Colors.white60,
-                                      ),
-                                ),
-                              ),
                               Center(
                                 child: CustomPaint(
                                   size: panelSize,
@@ -337,7 +456,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               size: const Size(_kFormationSoldierPx, _kFormationSoldierPx),
               painter: RosterMiniSoldierPainter(
                 design: _kDefaultRosterUnit,
-                palette: _kDefaultRosterPalette,
+                palette: _palette,
               ),
             ),
           ),

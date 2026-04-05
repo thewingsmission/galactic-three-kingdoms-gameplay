@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../models/soldier_design.dart';
 import '../models/soldier_design_palette.dart';
+import '../models/soldier_rarity.dart';
 import 'multi_polygon_soldier_painter.dart';
+import 'soldier_attack_preview_column.dart';
+import 'soldier_design_catalog.dart';
 import 'triangle_soldier.dart';
 
-/// Rounded square tile showing a Triangle soldier preview.
-class SoldierInventoryTile extends StatelessWidget {
+/// Card-style inventory tile matching the production panel design.
+class SoldierInventoryTile extends StatefulWidget {
   const SoldierInventoryTile({
     super.key,
     required this.index,
@@ -23,59 +26,124 @@ class SoldierInventoryTile extends StatelessWidget {
   final SoldierDesignPalette rosterPalette;
 
   @override
+  State<SoldierInventoryTile> createState() => _SoldierInventoryTileState();
+}
+
+class _SoldierInventoryTileState extends State<SoldierInventoryTile>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final ColorScheme cs = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? cs.primaryContainer.withValues(alpha: 0.55) : cs.surfaceContainerHighest.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(10),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          height: 56,
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+    final ThemeData theme = Theme.of(context);
+    final SoldierDesign? design = widget.rosterDesign;
+    final SoldierRarity rarity =
+        design != null ? design.rarity : SoldierRarity.common;
+    final Color accent = rarity.accentColor;
+    final Color borderColor = widget.selected
+        ? accent
+        : Colors.white.withValues(alpha: 0.18);
+    final double borderWidth = widget.selected ? 2.5 : 1.25;
+
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: AspectRatio(
+        aspectRatio: 0.78,
+        child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? cs.primary : Colors.white24,
-              width: selected ? 2.5 : 1.25,
-            ),
+            color: widget.selected
+                ? accent.withValues(alpha: 0.12)
+                : Colors.black.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor, width: borderWidth),
           ),
-          child: Row(
+          child: Stack(
             children: <Widget>[
-              SizedBox(
-                width: 44,
-                height: 44,
-                child: Center(
-                  child: rosterDesign != null
-                      ? CustomPaint(
-                          size: const Size(40, 40),
-                          painter: RosterMiniSoldierPainter(
-                            design: rosterDesign!,
-                            palette: rosterPalette,
-                          ),
+              Positioned.fill(
+                bottom: 18,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+                  child: design != null
+                      ? AnimatedBuilder(
+                          animation: _ctrl,
+                          builder: (BuildContext context, Widget? child) {
+                            return SoldierAttackPreviewColumn(
+                              design: design,
+                              palette: widget.rosterPalette,
+                              motionT: _ctrl.value,
+                              strokeWidth: 2.25,
+                              uniformIdleDesigns: kSoldierDesignCatalog,
+                            );
+                          },
                         )
-                      : const TriangleSoldier(size: 40, side: 30, angle: 0),
+                      : const Center(
+                          child: TriangleSoldier(size: 40, side: 30, angle: 0),
+                        ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  rosterDesign != null
-                      ? '${rosterDesign!.name} · #${index + 1}'
-                      : 'Triangle #${index + 1}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.92),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12.5,
-                        height: 1.15,
-                      ),
+              Positioned(
+                top: 2,
+                right: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    rarity.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: accent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 8,
+                      height: 1,
+                    ),
+                  ),
                 ),
               ),
-              if (selected)
-                Icon(Icons.check_circle, color: cs.primary, size: 20),
+              if (widget.selected)
+                Positioned(
+                  top: 2,
+                  left: 2,
+                  child: Icon(Icons.check_circle, color: accent, size: 16),
+                ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 2,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    design?.name ?? 'Triangle',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
