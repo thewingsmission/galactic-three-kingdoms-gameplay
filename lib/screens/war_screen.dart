@@ -106,14 +106,6 @@ class _WarScreenState extends State<WarScreen> {
                                   letterSpacing: 6,
                                 ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Your leader has fallen.',
-                        style:
-                            Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  color: Colors.white70,
-                                ),
-                      ),
                       const SizedBox(height: 32),
                       Row(
                         mainAxisSize: MainAxisSize.min,

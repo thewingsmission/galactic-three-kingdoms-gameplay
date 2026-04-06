@@ -32,7 +32,7 @@ class _InventoryScreenState extends State<InventoryScreen>
   static const double _centerSnapPx = 21;
 
   /// Ring radius for the 9 default placement slots around the center soldier.
-  static const double _placementRadius = 70.2;
+  static const double _placementRadius = 49.14;
 
   /// 360° / 9 = 40° per slot for soldiers 2–10.
   static const int _ringSlots = 9;
@@ -47,6 +47,9 @@ class _InventoryScreenState extends State<InventoryScreen>
   final List<bool> _selected = List<bool>.filled(_inventorySize, false);
   final Map<int, Offset> _offsets = <int, Offset>{};
   late final SoldierContact _soldierContact;
+
+  /// Explicit leader — the soldier placed at center (first selected).
+  int? _cohortLeaderIndex;
 
   /// Index of the soldier currently being dragged (null if idle).
   int? _dragIndex;
@@ -69,13 +72,8 @@ class _InventoryScreenState extends State<InventoryScreen>
     super.dispose();
   }
 
-  /// Lowest inventory index among selected soldiers (cohort order); that unit stays on the crosshair.
-  int? _firstSelectedIndex() {
-    for (int i = 0; i < _inventorySize; i++) {
-      if (_selected[i]) return i;
-    }
-    return null;
-  }
+  /// The cohort leader — the soldier the user selected first (placed at center).
+  int? _firstSelectedIndex() => _cohortLeaderIndex;
 
   int _selectedCount() {
     int c = 0;
@@ -167,19 +165,23 @@ class _InventoryScreenState extends State<InventoryScreen>
     }
     setState(() {
       if (_selected[index]) {
-        final int? currentLeader = _firstSelectedIndex();
-        final bool wasLeader = index == currentLeader;
+        final bool wasLeader = index == _cohortLeaderIndex;
         _selected[index] = false;
         _offsets.remove(index);
         if (wasLeader) {
-          final int? newLeader = _firstSelectedIndex();
-          if (newLeader != null) {
-            _offsets[newLeader] = Offset.zero;
+          _cohortLeaderIndex = null;
+          for (int i = 0; i < _inventorySize; i++) {
+            if (_selected[i]) {
+              _cohortLeaderIndex = i;
+              _offsets[i] = Offset.zero;
+              break;
+            }
           }
         }
       } else {
         _selected[index] = true;
-        if (_selectedCount() == 1) {
+        if (_cohortLeaderIndex == null) {
+          _cohortLeaderIndex = index;
           _offsets[index] = Offset.zero;
         } else {
           _offsets[index] = _findValidPosition(index);
@@ -192,8 +194,8 @@ class _InventoryScreenState extends State<InventoryScreen>
     if (index == _firstSelectedIndex()) return;
     final Offset half = Offset(panelSize.width / 2, panelSize.height / 2);
     const double margin = 36;
-    final double maxX = half.dx - margin;
-    final double maxY = half.dy - margin;
+    final double maxX = (half.dx - margin) * 0.7;
+    final double maxY = (half.dy - margin) * 0.7;
     final Offset o = (_offsets[index] ?? Offset.zero) + delta;
     Offset next = Offset(
       o.dx.clamp(-maxX, maxX),
@@ -209,45 +211,41 @@ class _InventoryScreenState extends State<InventoryScreen>
     }
   }
 
-  // ── Contact-zone hit testing for drag ──────────────────────────────
+  // ── Hit testing for drag (contact zone) ────────────────────────────
 
-  bool _pointInContactZone(Offset point) {
-    final List<Offset>? hull = _soldierContact.hullVertices;
-    if (hull != null && hull.length >= 3) {
-      return _pointInPolygon(point, hull);
-    }
-    return point.distance <= _soldierContact.radius;
-  }
-
-  static bool _pointInPolygon(Offset point, List<Offset> polygon) {
-    bool inside = false;
-    int j = polygon.length - 1;
-    for (int i = 0; i < polygon.length; i++) {
-      final double yi = polygon[i].dy, yj = polygon[j].dy;
-      if ((yi > point.dy) != (yj > point.dy) &&
-          point.dx <
-              (polygon[j].dx - polygon[i].dx) *
-                      (point.dy - yi) /
-                      (yj - yi) +
-                  polygon[i].dx) {
-        inside = !inside;
-      }
-      j = i;
-    }
-    return inside;
-  }
-
-  /// Find the topmost selected soldier whose contact zone contains [touchLocal]
-  /// (relative to panel center). Returns null if none hit. Skips the leader.
+  /// Find the topmost (highest Y) selected soldier whose contact zone
+  /// contains [touchLocal] (relative to panel center). Skips the leader.
   int? _hitTestSoldier(Offset touchLocal) {
     final int? leader = _firstSelectedIndex();
-    for (int i = _inventorySize - 1; i >= 0; i--) {
+    final double r = _soldierContact.radius;
+    int? best;
+    double bestY = double.negativeInfinity;
+    for (int i = 0; i < _inventorySize; i++) {
       if (!_selected[i]) continue;
       if (i == leader) continue;
       final Offset o = _offsets[i] ?? Offset.zero;
-      if (_pointInContactZone(touchLocal - o)) return i;
+      final Offset local = touchLocal - o;
+      final bool hit = _soldierContact.hullVertices != null
+          ? _pointInPolygon(local, _soldierContact.hullVertices!)
+          : local.distance <= r;
+      if (hit && o.dy > bestY) {
+        best = i;
+        bestY = o.dy;
+      }
     }
-    return null;
+    return best;
+  }
+
+  static bool _pointInPolygon(Offset pt, List<Offset> hull) {
+    bool inside = false;
+    for (int i = 0, j = hull.length - 1; i < hull.length; j = i++) {
+      final Offset a = hull[i], b = hull[j];
+      if ((a.dy > pt.dy) != (b.dy > pt.dy) &&
+          pt.dx < (b.dx - a.dx) * (pt.dy - a.dy) / (b.dy - a.dy) + a.dx) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   void _onPanelPanStart(DragStartDetails details, Size panelSize) {
@@ -267,18 +265,29 @@ class _InventoryScreenState extends State<InventoryScreen>
 
   CohortDeployment _buildDeployment() {
     final List<PlacedSoldier> list = <PlacedSoldier>[];
+    final int? leader = _cohortLeaderIndex;
+    if (leader != null && _selected[leader]) {
+      list.add(
+        PlacedSoldier(
+          inventoryIndex: leader,
+          type: SoldierType.triangle,
+          localOffset: _offsets[leader] ?? Offset.zero,
+          soldierDesign: _kRoster[leader],
+          cohortPalette: _palette,
+        ),
+      );
+    }
     for (int i = 0; i < _inventorySize; i++) {
-      if (_selected[i]) {
-        list.add(
-          PlacedSoldier(
-            inventoryIndex: i,
-            type: SoldierType.triangle,
-            localOffset: _offsets[i] ?? Offset.zero,
-            soldierDesign: _kRoster[i],
-            cohortPalette: _palette,
-          ),
-        );
-      }
+      if (!_selected[i] || i == leader) continue;
+      list.add(
+        PlacedSoldier(
+          inventoryIndex: i,
+          type: SoldierType.triangle,
+          localOffset: _offsets[i] ?? Offset.zero,
+          soldierDesign: _kRoster[i],
+          cohortPalette: _palette,
+        ),
+      );
     }
     return CohortDeployment(soldiers: list);
   }
@@ -558,15 +567,21 @@ class _InventoryScreenState extends State<InventoryScreen>
   }
 
   List<Widget> _buildFormationSoldiers(Size panelSize, double motionT) {
-    final List<Widget> out = <Widget>[];
     final Offset origin = Offset(panelSize.width / 2, panelSize.height / 2);
-    for (int i = 0; i < _inventorySize; i++) {
-      if (!_selected[i]) continue;
-      final Offset o = _offsets[i] ?? Offset.zero;
-      out.add(
+    final List<int> indices = <int>[
+      for (int i = 0; i < _inventorySize; i++)
+        if (_selected[i]) i,
+    ];
+    indices.sort((int a, int b) {
+      final double ya = (_offsets[a] ?? Offset.zero).dy;
+      final double yb = (_offsets[b] ?? Offset.zero).dy;
+      return ya.compareTo(yb);
+    });
+    return <Widget>[
+      for (final int i in indices)
         Positioned(
-          left: origin.dx + o.dx - _kFormationSoldierHalf,
-          top: origin.dy + o.dy - _kFormationSoldierHalf,
+          left: origin.dx + (_offsets[i] ?? Offset.zero).dx - _kFormationSoldierHalf,
+          top: origin.dy + (_offsets[i] ?? Offset.zero).dy - _kFormationSoldierHalf,
           child: IgnorePointer(
             child: CustomPaint(
               size: const Size(_kFormationSoldierPx, _kFormationSoldierPx),
@@ -578,9 +593,7 @@ class _InventoryScreenState extends State<InventoryScreen>
             ),
           ),
         ),
-      );
-    }
-    return out;
+    ];
   }
 }
 
@@ -599,3 +612,5 @@ class _CrosshairPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+

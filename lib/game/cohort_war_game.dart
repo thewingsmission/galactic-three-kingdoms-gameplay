@@ -313,6 +313,7 @@ class CohortWarGame extends Forge2DGame {
   final ValueNotifier<Vector2> soldier1PosHud;
   final ValueNotifier<bool> gameOver = ValueNotifier<bool>(false);
 
+
   Vector2 stick = Vector2.zero();
 
   static const double cohortMaxSpeed = 220;
@@ -374,8 +375,11 @@ class CohortWarGame extends Forge2DGame {
 
   int get soldierCount => _deployment.soldiers.length;
 
-  /// First deployed soldier: receives stick steering; formation anchor; camera target.
-  Body get _leaderBody => playerSoldierBodies[0].body;
+  /// Current leader index — changes on leader death via succession.
+  int _leaderIndex = 0;
+
+  /// Current leader: receives stick steering; formation anchor; camera target.
+  Body get _leaderBody => playerSoldierBodies[_leaderIndex].body;
 
   @override
   Future<void> onLoad() async {
@@ -502,8 +506,7 @@ class CohortWarGame extends Forge2DGame {
       enemyMaxHp: () => _enemyMaxHp,
     ));
 
-    // Follow the cohort leader (first selected soldier), not a separate ghost body.
-    camera.follow(playerSoldierBodies[0], snap: true, maxSpeed: double.infinity);
+    camera.follow(playerSoldierBodies[_leaderIndex], snap: true, maxSpeed: double.infinity);
   }
 
   /// Cohort convention: [atan2(dx, -dy)] matches [CohortRuntime] aim / forward `(0,-1)`.
@@ -1048,6 +1051,7 @@ class CohortWarGame extends Forge2DGame {
     final double c = soldierFormationVelDamp;
 
     for (int i = 0; i < playerSoldierBodies.length; i++) {
+      if (i == _leaderIndex) continue;
       if (!_playerAlive[i]) continue;
       if (_playerKnockbackTimer[i] > 0) continue;
       if (!_playerCohortMoving() &&
@@ -1066,6 +1070,7 @@ class CohortWarGame extends Forge2DGame {
   void _syncSoldierOffsetsFromBodies() {
     final Vector2 lc = _leaderBody.position;
     for (int i = 0; i < playerSoldierBodies.length; i++) {
+      if (!_playerAlive[i]) continue;
       playerCohort.soldier(i).localOffset =
           playerSoldierBodies[i].body.position - lc;
     }
@@ -1074,6 +1079,7 @@ class CohortWarGame extends Forge2DGame {
   void _snapshotVelocitiesBeforeStep() {
     _leaderSoldierVelBefore.setFrom(_leaderBody.linearVelocity);
     for (int i = 0; i < playerSoldierBodies.length; i++) {
+      if (!_playerAlive[i]) continue;
       _soldierVelBefore[i].setFrom(playerSoldierBodies[i].body.linearVelocity);
     }
   }
@@ -1093,6 +1099,7 @@ class CohortWarGame extends Forge2DGame {
 
     clampIfFlipped(_leaderBody, _leaderSoldierVelBefore);
     for (int i = 0; i < playerSoldierBodies.length; i++) {
+      if (!_playerAlive[i]) continue;
       clampIfFlipped(playerSoldierBodies[i].body, _soldierVelBefore[i]);
     }
   }
@@ -1124,8 +1131,8 @@ class CohortWarGame extends Forge2DGame {
     final Vector2 v = _leaderBody.linearVelocity;
     velocityHud.value = Vector2(v.x, v.y);
 
-    if (playerSoldierBodies.isNotEmpty) {
-      final Vector2 p = playerSoldierBodies[0].body.position;
+    if (_playerAlive[_leaderIndex]) {
+      final Vector2 p = playerSoldierBodies[_leaderIndex].body.position;
       soldier1PosHud.value = Vector2(p.x, p.y);
     }
   }
@@ -1173,9 +1180,13 @@ class CohortWarGame extends Forge2DGame {
 
       final bool engaged = _enemyContactInPlayerEngagementZone(i, locked);
       if (!engaged) {
-        _playerAttackCycleT[i] = 0;
-        _playerDamagedThisPhase[i].clear();
-        _playerWasInAttackPhase[i] = false;
+        if (_playerAttackCycleT[i] > 0 && _isAttackPhase(_playerAttackCycleT[i])) {
+          _playerAttackCycleT[i] = (_playerAttackCycleT[i] + dtNorm) % 1.0;
+        } else {
+          _playerAttackCycleT[i] = 0;
+          _playerDamagedThisPhase[i].clear();
+          _playerWasInAttackPhase[i] = false;
+        }
         continue;
       }
 
@@ -1196,15 +1207,15 @@ class CohortWarGame extends Forge2DGame {
           if (_enemyContactInPlayerAttackZone(i, ek)) {
             _playerDamagedThisPhase[i].add(ek);
             _enemyHp[ej] = (_enemyHp[ej] - kGildedBastionAttackDmg).clamp(0, _enemyMaxHp[ej]);
-            final Vector2 targetPos = enemySoldiers[ej].body.body.position;
-            final Vector2 dir = targetPos - attackerPos;
+            final Vector2 damagedCenter = enemySoldiers[ej].body.body.position.clone();
+            final Vector2 dir = damagedCenter - attackerPos;
             if (dir.length2 > 0.01) {
               enemySoldiers[ej].body.body.linearVelocity.setFrom(
                 dir.normalized() * kKnockbackSpeed,
               );
               _enemyKnockbackTimer[ej] = kKnockbackCooldown;
             }
-            _spawnDamageText(targetPos, kGildedBastionAttackDmg, playerPalette);
+            _spawnDamageText(damagedCenter, kGildedBastionAttackDmg, playerPalette);
             if (_enemyHp[ej] <= 0) {
               _killEnemy(ej);
             }
@@ -1252,9 +1263,13 @@ class CohortWarGame extends Forge2DGame {
           : _rivalContactInEnemyEngagementZone(
               ei, int.parse(locked.substring(2)));
       if (!engaged) {
-        _enemyAttackCycleT[ei] = 0;
-        _enemyDamagedThisPhase[ei].clear();
-        _enemyWasInAttackPhase[ei] = false;
+        if (_enemyAttackCycleT[ei] > 0 && _isAttackPhase(_enemyAttackCycleT[ei])) {
+          _enemyAttackCycleT[ei] = (_enemyAttackCycleT[ei] + dtNorm) % 1.0;
+        } else {
+          _enemyAttackCycleT[ei] = 0;
+          _enemyDamagedThisPhase[ei].clear();
+          _enemyWasInAttackPhase[ei] = false;
+        }
         continue;
       }
 
@@ -1276,15 +1291,15 @@ class CohortWarGame extends Forge2DGame {
           if (_playerContactInEnemyAttackZone(ei, pk)) {
             _enemyDamagedThisPhase[ei].add(pk);
             _playerHp[pj] = (_playerHp[pj] - kGildedBastionAttackDmg).clamp(0, _playerMaxHp[pj]);
-            final Vector2 targetPos = playerSoldierBodies[pj].body.position;
-            final Vector2 dir = targetPos - attackerPos;
+            final Vector2 damagedCenter = playerSoldierBodies[pj].body.position.clone();
+            final Vector2 dir = damagedCenter - attackerPos;
             if (dir.length2 > 0.01) {
               playerSoldierBodies[pj].body.linearVelocity.setFrom(
                 dir.normalized() * kKnockbackSpeed,
               );
               _playerKnockbackTimer[pj] = kKnockbackCooldown;
             }
-            _spawnDamageText(targetPos, kGildedBastionAttackDmg, attackerPal);
+            _spawnDamageText(damagedCenter, kGildedBastionAttackDmg, attackerPal);
             if (_playerHp[pj] <= 0) _killPlayer(pj);
           }
         }
@@ -1295,15 +1310,15 @@ class CohortWarGame extends Forge2DGame {
           if (_rivalContactInEnemyAttackZone(ei, ej)) {
             _enemyDamagedThisPhase[ei].add(ek);
             _enemyHp[ej] = (_enemyHp[ej] - kGildedBastionAttackDmg).clamp(0, _enemyMaxHp[ej]);
-            final Vector2 targetPos = enemySoldiers[ej].body.body.position;
-            final Vector2 dir = targetPos - attackerPos;
+            final Vector2 damagedCenter = enemySoldiers[ej].body.body.position.clone();
+            final Vector2 dir = damagedCenter - attackerPos;
             if (dir.length2 > 0.01) {
               enemySoldiers[ej].body.body.linearVelocity.setFrom(
                 dir.normalized() * kKnockbackSpeed,
               );
               _enemyKnockbackTimer[ej] = kKnockbackCooldown;
             }
-            _spawnDamageText(targetPos, kGildedBastionAttackDmg, attackerPal);
+            _spawnDamageText(damagedCenter, kGildedBastionAttackDmg, attackerPal);
             if (_enemyHp[ej] <= 0) _killEnemy(ej);
           }
         }
@@ -1351,9 +1366,6 @@ class CohortWarGame extends Forge2DGame {
     ));
     _playerLockedEnemy[pj] = null;
     _playerAttackCycleT[pj] = 0;
-    if (pj == 0) {
-      gameOver.value = true;
-    }
     for (int ei = 0; ei < enemySoldiers.length; ei++) {
       if (_enemyLockedPlayer[ei] == 'p-$pj') {
         _enemyLockedPlayer[ei] = null;
@@ -1362,6 +1374,28 @@ class CohortWarGame extends Forge2DGame {
         _enemyWasInAttackPhase[ei] = false;
       }
     }
+
+    if (pj == _leaderIndex) {
+      _promoteNextLeader(pos);
+    }
+  }
+
+  /// Find the next alive soldier to become leader. If none remain, game over.
+  /// The new leader stays in place; formation targets recompute around it.
+  void _promoteNextLeader(Vector2 oldLeaderPos) {
+    int? next;
+    for (int i = 0; i < playerSoldierBodies.length; i++) {
+      if (_playerAlive[i]) {
+        next = i;
+        break;
+      }
+    }
+    if (next == null) {
+      gameOver.value = true;
+      return;
+    }
+    _leaderIndex = next;
+    camera.follow(playerSoldierBodies[_leaderIndex], snap: true, maxSpeed: double.infinity);
   }
 
   void _spawnDamageText(Vector2 worldPos, int amount, SoldierDesignPalette attackerPalette) {
@@ -1885,8 +1919,14 @@ class PlayerFormationPainter extends Component {
 
   @override
   void render(Canvas canvas) {
-    for (int i = 0; i < runtime.soldierCount; i++) {
-      if (!isAlive(i)) continue;
+    final List<int> order = <int>[
+      for (int i = 0; i < runtime.soldierCount; i++)
+        if (isAlive(i)) i,
+    ];
+    order.sort((int a, int b) =>
+        soldierWorldPosition(a).y.compareTo(soldierWorldPosition(b).y));
+
+    for (final int i in order) {
       final CohortSoldier s = runtime.soldier(i);
       final SoldierModel m = s.model;
       final Vector2 p = soldierWorldPosition(i);
@@ -1959,8 +1999,15 @@ class EnemySoldiersPainter extends Component {
 
   @override
   void render(Canvas canvas) {
-    for (int i = 0; i < enemyCount(); i++) {
-      if (!isAlive(i)) continue;
+    final int count = enemyCount();
+    final List<int> order = <int>[
+      for (int i = 0; i < count; i++)
+        if (isAlive(i)) i,
+    ];
+    order.sort((int a, int b) =>
+        soldierWorldPosition(a).y.compareTo(soldierWorldPosition(b).y));
+
+    for (final int i in order) {
       final CohortSoldier s = soldier(i);
       final SoldierModel m = s.model;
       final Vector2 p = soldierWorldPosition(i);
