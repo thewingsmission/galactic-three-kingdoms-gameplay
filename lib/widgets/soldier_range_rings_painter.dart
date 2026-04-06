@@ -129,6 +129,7 @@ class SoldierRangeRingsPainter extends CustomPainter {
     final List<Offset> all = <Offset>[];
     for (final SoldierShapePart p in parts) {
       if (p.stackRole == SoldierPartStackRole.contact ||
+          p.stackRole == SoldierPartStackRole.target ||
           p.stackRole == SoldierPartStackRole.engagement) {
         continue;
       }
@@ -266,6 +267,32 @@ class SoldierRangeRingsPainter extends CustomPainter {
         ..strokeWidth = conStroke
         ..strokeJoin = StrokeJoin.round,
     );
+
+    // --- Target zone polygon (contact × 1.5) ---
+    for (final SoldierShapePart p in parts) {
+      if (p.stackRole != SoldierPartStackRole.target) continue;
+      final List<Offset>? tv =
+          MultiPolygonSoldierPainter.transformedFillVertices(p, motionT, attackT);
+      if (tv == null || tv.length < 3) continue;
+      final Path targetPath = Path();
+      final Offset t0 = toScreen(tv.first);
+      targetPath.moveTo(t0.dx, t0.dy);
+      for (int i = 1; i < tv.length; i++) {
+        final Offset ts = toScreen(tv[i]);
+        targetPath.lineTo(ts.dx, ts.dy);
+      }
+      targetPath.close();
+      final double targetStroke = math.max(1.5, conStroke * 0.75);
+      canvas.drawPath(
+        targetPath,
+        Paint()
+          ..color = const Color(0xFFFF6D00).withValues(alpha: 0.75)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = targetStroke
+          ..strokeJoin = StrokeJoin.round,
+      );
+      break;
+    }
 
     // --- Engagement zone polygon ---
     for (final SoldierShapePart p in parts) {

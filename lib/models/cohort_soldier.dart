@@ -40,6 +40,7 @@ class SoldierContact {
   const SoldierContact({
     required this.radius,
     this.hullVertices,
+    this.targetHullVertices,
     this.engagementHullVertices,
   });
 
@@ -83,6 +84,21 @@ class SoldierContact {
       break;
     }
 
+    List<Offset>? targetScaled;
+    for (final SoldierShapePart p in design.parts) {
+      if (p.stackRole != SoldierPartStackRole.target) continue;
+      final List<Offset>? hull =
+          MultiPolygonSoldierPainter.transformedFillVertices(p, 0.25, null);
+      if (hull == null || hull.length < 3) continue;
+      targetScaled = <Offset>[];
+      for (final Offset v in hull) {
+        final double wx = (v.dx - anchor.dx) * fit;
+        final double wy = (v.dy - anchor.dy) * fit;
+        targetScaled.add(Offset(wx, wy));
+      }
+      break;
+    }
+
     List<Offset>? engScaled;
     for (final SoldierShapePart p in design.parts) {
       if (p.stackRole != SoldierPartStackRole.engagement) continue;
@@ -102,6 +118,7 @@ class SoldierContact {
       return SoldierContact(
         radius: maxR,
         hullVertices: contactScaled,
+        targetHullVertices: targetScaled,
         engagementHullVertices: engScaled,
       );
     }
@@ -117,10 +134,15 @@ class SoldierContact {
   /// Null for plain-triangle soldiers (use [radius] circle fallback).
   final List<Offset>? hullVertices;
 
+  /// Target zone polygon in **body-local** space — contact hull × 1.5. Null when not defined.
+  final List<Offset>? targetHullVertices;
+
   /// Engagement zone polygon in **body-local** space. Null when not defined.
   final List<Offset>? engagementHullVertices;
 
   bool get hasPolygon => hullVertices != null && hullVertices!.length >= 3;
+  bool get hasTarget =>
+      targetHullVertices != null && targetHullVertices!.length >= 3;
   bool get hasEngagement =>
       engagementHullVertices != null && engagementHullVertices!.length >= 3;
 }

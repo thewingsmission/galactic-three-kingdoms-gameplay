@@ -16,6 +16,7 @@ Soldier container
 │   ├── …
 │   ├── Core body image component N (static or movable)
 │   ├── Contact zone image
+│   ├── Target zone image
 │   └── Engagement zone image
 ├── Attack body container
 │   ├── Attack body image component 1 (static or movable)
@@ -61,6 +62,7 @@ Soldier container
 │   ├── Core body image component 17 (static — left side vertical)
 │   ├── Core body image component 18 (static — right side vertical)
 │   ├── Contact zone image
+│   ├── Target zone image (contact zone × 1.5, same position)
 │   └── Engagement zone image (rectangle — engagement reach ahead of body)
 ├── Attack body container
 │   ├── Attack body image component 1 (movable — underlay probe rod)
@@ -88,6 +90,7 @@ Soldier container
 - **Children:**
   - **Core body image components (1…N):** Drawable layers (hull, limbs, details). Each may be **static** or **movable** (animation / procedural motion). Order **within** this container is also back-to-front unless overridden.
   - **Contact zone image:** Defines the **contact / collision footprint** (body contact with the world or other units). May be a visible outline or an **invisible** hull; either way it is the authoritative footprint for that container. Listed **after** the drawable core components in the tree.
+  - **Target zone image:** The **target acquisition** footprint — same shape as the contact zone scaled uniformly by 1.5×, centered at the same position. Used for player tap-to-target hit testing. Listed **after** contact zone, **before** engagement zone.
   - **Engagement zone image:** Defines the **engagement reach** — the area ahead of the soldier where combat begins. When this zone overlaps an opponent's contact zone, the soldier stops chasing and starts its attack cycle. Typically a rectangle projecting forward from the body (e.g. `(-6,-34), (6,-34), (6,-87), (-6,-87)` for Gilded Bastion). The engagement zone triggers the attack action; the **hit zone** (on the attack component) determines when damage is actually dealt.
 
 ### Attack body container
@@ -109,7 +112,7 @@ Soldier container
 ### Detection zone image
 
 - **Role:** Visual for **awareness / acquisition** range (typically larger than contact).
-- **Placement:** Direct child of **Soldier container**, **after** hit point bar, **before** center dot.
+- **Placement:** Direct child of **Soldier container**, **after** target zone, **before** center dot.
 
 ### Center dot image
 
@@ -124,7 +127,7 @@ Soldier container
 | Group | Question it answers |
 |--------|---------------------|
 | **Soldier container** | Where is the unit, how is it oriented, how is it scaled? |
-| **Core body container** | What does the main body look like, what is its contact footprint, and where is its engagement reach? |
+| **Core body container** | What does the main body look like, what is its contact footprint, target footprint (contact × 1.5), and engagement reach? |
 | **Attack body container** | What appears or moves when threatening, with optional FX and per-part reach? |
 | **Hit point bar image** | How much health does the unit have left? |
 | **Detection zone image** | How far can the unit notice targets? |

@@ -12,6 +12,8 @@ enum SoldierPartStackRole {
   center,
   /// Logical footprint (polygon). Omitted from [MultiPolygonSoldierPainter] paint order.
   contact,
+  /// Target acquisition footprint — contact zone × 1.5. Omitted from sprite paint.
+  target,
   /// Engagement reach polygon. Omitted from sprite paint; used for zone overlay rendering.
   engagement,
   attack,

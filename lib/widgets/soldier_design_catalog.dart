@@ -514,6 +514,14 @@ const List<Offset> _kGildedBastionContactHull = <Offset>[
   Offset(-18, 22),
 ];
 
+/// Target zone = contact hull × 1.5 (scaled about centroid (0, −2)).
+const List<Offset> _kGildedBastionTargetHull = <Offset>[
+  Offset(-10.5, -38),
+  Offset(10.5, -38),
+  Offset(27, 34),
+  Offset(-27, 34),
+];
+
 final SoldierDesign _kLegendaryCastleCat = SoldierDesign(
   id: 'gilded_bastion_cat',
   name: 'Gilded Bastion',
@@ -528,6 +536,13 @@ final SoldierDesign _kLegendaryCastleCat = SoldierDesign(
       transparentFill: true,
       strokeWidth: 0,
       stackRole: SoldierPartStackRole.contact,
+    ),
+    SoldierShapePart(
+      fillVertices: _kGildedBastionTargetHull.toList(),
+      fillTier: 1,
+      transparentFill: true,
+      strokeWidth: 0,
+      stackRole: SoldierPartStackRole.target,
     ),
     SoldierShapePart(
       fillVertices: const <Offset>[

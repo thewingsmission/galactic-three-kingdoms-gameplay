@@ -137,6 +137,19 @@ List<Vector2>? contactZoneWorldVerts(SoldierContact contact, Vector2 bodyPos, do
   }).toList();
 }
 
+/// Target zone vertices transformed to world space (contact × 1.5).
+List<Vector2>? targetZoneWorldVerts(SoldierContact contact, Vector2 bodyPos, double angle) {
+  if (!contact.hasTarget) return null;
+  final double c = math.cos(angle);
+  final double sn = math.sin(angle);
+  return contact.targetHullVertices!.map((Offset o) {
+    return Vector2(
+      bodyPos.x + c * o.dx - sn * o.dy,
+      bodyPos.y + sn * o.dx + c * o.dy,
+    );
+  }).toList();
+}
+
 /// Engagement zone vertices transformed to world space.
 List<Vector2>? engagementZoneWorldVerts(SoldierContact contact, Vector2 bodyPos, double angle) {
   if (!contact.hasEngagement) return null;
@@ -297,6 +310,7 @@ class CohortWarGame extends Forge2DGame {
     required this.playerPalette,
     required this.velocityHud,
     required this.soldier1PosHud,
+    this.onTargetAssigned,
   }) : _deployment = deployment,
        _enemyPalettes = SoldierDesignPalette.values
            .where((SoldierDesignPalette p) => p != playerPalette)
@@ -311,6 +325,7 @@ class CohortWarGame extends Forge2DGame {
   final List<SoldierDesignPalette> _enemyPalettes;
   final ValueNotifier<Vector2> velocityHud;
   final ValueNotifier<Vector2> soldier1PosHud;
+  final VoidCallback? onTargetAssigned;
   final ValueNotifier<bool> gameOver = ValueNotifier<bool>(false);
 
 
@@ -385,23 +400,30 @@ class CohortWarGame extends Forge2DGame {
   }
 
   void _trySelectTargetEnemy(Vector2 worldTap) {
-    for (int ei = enemySoldiers.length - 1; ei >= 0; ei--) {
+    int? best;
+    double bestY = double.negativeInfinity;
+    for (int ei = 0; ei < enemySoldiers.length; ei++) {
       if (!_enemyAlive[ei]) continue;
       final CohortSoldier es = enemySoldiers[ei].soldier;
       final Vector2 ePos = enemySoldiers[ei].body.body.position;
       final double eAngle = _lastEnemySoldierFacing[ei];
       final List<Vector2>? verts =
-          contactZoneWorldVerts(es.contact, ePos, eAngle);
+          targetZoneWorldVerts(es.contact, ePos, eAngle);
       bool hit;
       if (verts != null && verts.length >= 3) {
         hit = _pointInConvexPoly(worldTap, verts);
       } else {
-        hit = (worldTap - ePos).length2 <= es.contact.radius * es.contact.radius;
+        final double r = es.contact.radius * kSoldierTargetZoneScale;
+        hit = (worldTap - ePos).length2 <= r * r;
       }
-      if (hit) {
-        _targetEnemyIndex = ei;
-        return;
+      if (hit && ePos.y > bestY) {
+        best = ei;
+        bestY = ePos.y;
       }
+    }
+    if (best != null) {
+      _targetEnemyIndex = best;
+      onTargetAssigned?.call();
     }
   }
 
@@ -527,6 +549,7 @@ class CohortWarGame extends Forge2DGame {
       enemyAttackCycleT: (int i) =>
           _enemyLockedPlayer[i] != null ? _enemyAttackCycleT[i] : null,
     ));
+    await world.add(_WarTargetZoneLayer(player: playerAccessor, enemy: enemyAccessor));
     await world.add(_WarDetectionZoneLayer(player: playerAccessor, enemy: enemyAccessor));
     await world.add(_WarCenterDotLayer(player: playerAccessor, enemy: enemyAccessor));
     await world.add(_WarHpBarLayer(
@@ -1897,6 +1920,55 @@ class _WarAttackZoneLayer extends Component {
     for (int i = 0; i < enemy.count(); i++) {
       if (!enemy.alive(i)) continue;
       _draw(canvas, enemy.soldier(i), enemy.position(i), enemy.angle(i), enemyAttackCycleT(i));
+    }
+  }
+}
+
+/// **Target zone** — contact polygon × 1.5 (same shape, scaled).
+class _WarTargetZoneLayer extends Component {
+  _WarTargetZoneLayer({required this.player, required this.enemy});
+  final _SoldierAccessor player;
+  final _SoldierAccessor enemy;
+
+  static bool visible = false;
+
+  static final Paint _stroke = Paint()
+    ..color = const Color(0xFFFF6D00).withValues(alpha: 0.45)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2;
+
+  @override
+  int get priority => 22;
+
+  void _draw(Canvas canvas, CohortSoldier s, Vector2 pos, double angle) {
+    final List<Vector2>? verts = targetZoneWorldVerts(s.contact, pos, angle);
+    if (verts != null && verts.length >= 3) {
+      final Path path = Path();
+      path.moveTo(verts[0].x, verts[0].y);
+      for (int i = 1; i < verts.length; i++) {
+        path.lineTo(verts[i].x, verts[i].y);
+      }
+      path.close();
+      canvas.drawPath(path, _stroke);
+    } else {
+      canvas.drawCircle(
+        Offset(pos.x, pos.y),
+        s.contact.radius * kSoldierTargetZoneScale,
+        _stroke,
+      );
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (!visible) return;
+    for (int i = 0; i < player.count(); i++) {
+      if (!player.alive(i)) continue;
+      _draw(canvas, player.soldier(i), player.position(i), player.angle(i));
+    }
+    for (int i = 0; i < enemy.count(); i++) {
+      if (!enemy.alive(i)) continue;
+      _draw(canvas, enemy.soldier(i), enemy.position(i), enemy.angle(i));
     }
   }
 }
