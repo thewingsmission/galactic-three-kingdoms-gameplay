@@ -19,7 +19,8 @@ class InventoryScreen extends StatefulWidget {
   State<InventoryScreen> createState() => _InventoryScreenState();
 }
 
-class _InventoryScreenState extends State<InventoryScreen> {
+class _InventoryScreenState extends State<InventoryScreen>
+    with SingleTickerProviderStateMixin {
   static const int _inventorySize = 10;
   static const int _maxCohortSize = 10;
 
@@ -36,10 +37,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
   /// 360° / 9 = 40° per slot for soldiers 2–10.
   static const int _ringSlots = 9;
 
-  /// Per-slot roster: 5 × Gilded Bastion (#1) + 5 × Gilded Bastion 3 (#3).
+  /// Per-slot roster: 10 × production Gilded Bastion.
   static final List<SoldierDesign> _kRoster = List<SoldierDesign>.unmodifiable(<SoldierDesign>[
-    for (int i = 0; i < 5; i++) kProductionSoldierDesignCatalog[0],
-    for (int i = 0; i < 5; i++) kProductionSoldierDesignCatalog[2],
+    for (int i = 0; i < _inventorySize; i++) kProductionSoldierDesignCatalog.first,
   ]);
 
   SoldierDesignPalette _palette = SoldierDesignPalette.red;
@@ -48,10 +48,25 @@ class _InventoryScreenState extends State<InventoryScreen> {
   final Map<int, Offset> _offsets = <int, Offset>{};
   late final SoldierContact _soldierContact;
 
+  /// Index of the soldier currently being dragged (null if idle).
+  int? _dragIndex;
+
+  late final AnimationController _idleMotionCtrl;
+
   @override
   void initState() {
     super.initState();
-    _soldierContact = SoldierContact.fromDesign(_kRoster.first, 56);
+    _soldierContact = SoldierContact.fromDesign(_kRoster.first, _kFormationSoldierPx);
+    _idleMotionCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _idleMotionCtrl.dispose();
+    super.dispose();
   }
 
   /// Lowest inventory index among selected soldiers (cohort order); that unit stays on the crosshair.
@@ -192,6 +207,62 @@ class _InventoryScreenState extends State<InventoryScreen> {
         _offsets[index] = next;
       });
     }
+  }
+
+  // ── Contact-zone hit testing for drag ──────────────────────────────
+
+  bool _pointInContactZone(Offset point) {
+    final List<Offset>? hull = _soldierContact.hullVertices;
+    if (hull != null && hull.length >= 3) {
+      return _pointInPolygon(point, hull);
+    }
+    return point.distance <= _soldierContact.radius;
+  }
+
+  static bool _pointInPolygon(Offset point, List<Offset> polygon) {
+    bool inside = false;
+    int j = polygon.length - 1;
+    for (int i = 0; i < polygon.length; i++) {
+      final double yi = polygon[i].dy, yj = polygon[j].dy;
+      if ((yi > point.dy) != (yj > point.dy) &&
+          point.dx <
+              (polygon[j].dx - polygon[i].dx) *
+                      (point.dy - yi) /
+                      (yj - yi) +
+                  polygon[i].dx) {
+        inside = !inside;
+      }
+      j = i;
+    }
+    return inside;
+  }
+
+  /// Find the topmost selected soldier whose contact zone contains [touchLocal]
+  /// (relative to panel center). Returns null if none hit. Skips the leader.
+  int? _hitTestSoldier(Offset touchLocal) {
+    final int? leader = _firstSelectedIndex();
+    for (int i = _inventorySize - 1; i >= 0; i--) {
+      if (!_selected[i]) continue;
+      if (i == leader) continue;
+      final Offset o = _offsets[i] ?? Offset.zero;
+      if (_pointInContactZone(touchLocal - o)) return i;
+    }
+    return null;
+  }
+
+  void _onPanelPanStart(DragStartDetails details, Size panelSize) {
+    final Offset origin = Offset(panelSize.width / 2, panelSize.height / 2);
+    _dragIndex = _hitTestSoldier(details.localPosition - origin);
+  }
+
+  void _onPanelPanUpdate(DragUpdateDetails details, Size panelSize) {
+    final int? di = _dragIndex;
+    if (di == null) return;
+    _onDragSoldier(di, details.delta, panelSize);
+  }
+
+  void _onPanelPanEnd(DragEndDetails _) {
+    _dragIndex = null;
   }
 
   CohortDeployment _buildDeployment() {
@@ -406,28 +477,41 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       child: LayoutBuilder(
                         builder: (BuildContext context, BoxConstraints c) {
                           final Size panelSize = Size(c.maxWidth, c.maxHeight);
-                          return Stack(
-                            clipBehavior: Clip.none,
-                            children: <Widget>[
-                              Positioned(
-                                left: 16,
-                                top: 12,
-                                child: Text(
-                                  'Cohort formation',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: (DragStartDetails d) =>
+                                _onPanelPanStart(d, panelSize),
+                            onPanUpdate: (DragUpdateDetails d) =>
+                                _onPanelPanUpdate(d, panelSize),
+                            onPanEnd: _onPanelPanEnd,
+                            child: AnimatedBuilder(
+                              animation: _idleMotionCtrl,
+                              builder: (BuildContext context, Widget? child) {
+                                return Stack(
+                                  clipBehavior: Clip.none,
+                                  children: <Widget>[
+                                    Positioned(
+                                      left: 16,
+                                      top: 12,
+                                      child: Text(
+                                        'Cohort formation',
+                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                       ),
-                                ),
-                              ),
-                              Center(
-                                child: CustomPaint(
-                                  size: panelSize,
-                                  painter: _CrosshairPainter(),
-                                ),
-                              ),
-                              ..._buildDraggableSoldiers(panelSize),
-                            ],
+                                    ),
+                                    Center(
+                                      child: CustomPaint(
+                                        size: panelSize,
+                                        painter: _CrosshairPainter(),
+                                      ),
+                                    ),
+                                    ..._buildFormationSoldiers(panelSize, _idleMotionCtrl.value),
+                                  ],
+                                );
+                              },
+                            ),
                           );
                         },
                       ),
@@ -442,7 +526,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
-  List<Widget> _buildDraggableSoldiers(Size panelSize) {
+  List<Widget> _buildFormationSoldiers(Size panelSize, double motionT) {
     final List<Widget> out = <Widget>[];
     final Offset origin = Offset(panelSize.width / 2, panelSize.height / 2);
     for (int i = 0; i < _inventorySize; i++) {
@@ -452,13 +536,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
         Positioned(
           left: origin.dx + o.dx - _kFormationSoldierHalf,
           top: origin.dy + o.dy - _kFormationSoldierHalf,
-          child: GestureDetector(
-            onPanUpdate: (DragUpdateDetails d) => _onDragSoldier(i, d.delta, panelSize),
+          child: IgnorePointer(
             child: CustomPaint(
               size: const Size(_kFormationSoldierPx, _kFormationSoldierPx),
               painter: RosterMiniSoldierPainter(
                 design: _kRoster[i],
                 palette: _palette,
+                motionT: motionT,
               ),
             ),
           ),

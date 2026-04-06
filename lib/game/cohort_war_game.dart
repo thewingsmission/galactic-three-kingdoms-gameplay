@@ -1580,8 +1580,16 @@ class PlayerFormationPainter extends Component {
   final double? Function(int index) attackCycleForSoldier;
   final bool Function(int index) isAlive;
 
+  static const double _idleCycleSec = 1.4;
+  double _motionT = 0;
+
   @override
   int get priority => 20;
+
+  @override
+  void update(double dt) {
+    _motionT = (_motionT + dt / _idleCycleSec) % 1.0;
+  }
 
   @override
   void render(Canvas canvas) {
@@ -1615,7 +1623,7 @@ class PlayerFormationPainter extends Component {
           parts: parts,
           displayPalette: m.displayPalette!,
           strokeWidth: 2.25,
-          motionT: 0.25,
+          motionT: _motionT,
           attackCycleT: aCycleT,
           uniformWorldScale: fit,
           fixedModelAnchor: anchor,
@@ -1646,8 +1654,16 @@ class EnemySoldiersPainter extends Component {
   final double? Function(int index) attackCycleForSoldier;
   final bool Function(int index) isAlive;
 
+  static const double _idleCycleSec = 1.4;
+  double _motionT = 0;
+
   @override
   int get priority => 5;
+
+  @override
+  void update(double dt) {
+    _motionT = (_motionT + dt / _idleCycleSec) % 1.0;
+  }
 
   @override
   void render(Canvas canvas) {
@@ -1681,7 +1697,7 @@ class EnemySoldiersPainter extends Component {
           parts: parts,
           displayPalette: m.displayPalette!,
           strokeWidth: 2.25,
-          motionT: 0.25,
+          motionT: _motionT,
           attackCycleT: aCycleT,
           uniformWorldScale: fit,
           fixedModelAnchor: anchor,

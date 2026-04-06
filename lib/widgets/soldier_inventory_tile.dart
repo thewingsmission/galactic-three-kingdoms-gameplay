@@ -157,10 +157,12 @@ class RosterMiniSoldierPainter extends CustomPainter {
   RosterMiniSoldierPainter({
     required this.design,
     required this.palette,
+    this.motionT = 0.25,
   });
 
   final SoldierDesign design;
   final SoldierDesignPalette palette;
+  final double motionT;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -180,7 +182,7 @@ class RosterMiniSoldierPainter extends CustomPainter {
       parts: parts,
       displayPalette: palette,
       strokeWidth: 2.25,
-      motionT: 0.25,
+      motionT: motionT,
       attackCycleT: null,
       uniformWorldScale: fit,
       fixedModelAnchor: anchor,
@@ -190,6 +192,8 @@ class RosterMiniSoldierPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant RosterMiniSoldierPainter oldDelegate) {
-    return oldDelegate.design != design || oldDelegate.palette != palette;
+    return oldDelegate.design != design ||
+        oldDelegate.palette != palette ||
+        oldDelegate.motionT != motionT;
   }
 }

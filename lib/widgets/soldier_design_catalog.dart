@@ -1833,19 +1833,9 @@ final List<SoldierDesign> _kRadialLegendaryDrafts =
 final List<SoldierDesign> kValidatedSoldierDesignCatalog =
     List<SoldierDesign>.unmodifiable(_legacyPromotedAsLegendary());
 
-final SoldierDesign _kLegendaryCastleCat2 = SoldierDesign(
-  id: 'gilded_bastion_cat_2',
-  name: 'Gilded Bastion 2',
-  rarity: _kLegendaryCastleCat.rarity,
-  rangePlotHubModel: _kLegendaryCastleCat.rangePlotHubModel,
-  crownVfxMode: CrownVfxMode.flames,
-  parts: _kLegendaryCastleCat.parts,
-  attack: _kLegendaryCastleCat.attack,
-);
-
-final SoldierDesign _kLegendaryCastleCat3 = SoldierDesign(
-  id: 'gilded_bastion_cat_3',
-  name: 'Gilded Bastion 3',
+final SoldierDesign _kProductionGildedBastion = SoldierDesign(
+  id: 'gilded_bastion_prod',
+  name: 'Gilded Bastion',
   rarity: _kLegendaryCastleCat.rarity,
   rangePlotHubModel: _kLegendaryCastleCat.rangePlotHubModel,
   crownVfxMode: CrownVfxMode.scalingCrown,
@@ -1853,12 +1843,10 @@ final SoldierDesign _kLegendaryCastleCat3 = SoldierDesign(
   attack: _kLegendaryCastleCat.attack,
 );
 
-/// Production tab / war roster: **Gilded Bastion** × 3 (validated #1 shipped + copies).
+/// Production tab / war roster: single **Gilded Bastion** with scalingCrown VFX.
 final List<SoldierDesign> kProductionSoldierDesignCatalog =
     List<SoldierDesign>.unmodifiable(<SoldierDesign>[
-      _kLegendaryCastleCat,
-      _kLegendaryCastleCat2,
-      _kLegendaryCastleCat3,
+      _kProductionGildedBastion,
     ]);
 
 /// Draft tab: **10** new crimson radial sigils (legendary).
