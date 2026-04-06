@@ -254,7 +254,8 @@ double _segDistSq(Vector2 a, Vector2 b, Vector2 p) {
 
 const int kGildedBastionMaxHp = 100;
 const int kGildedBastionAttackDmg = 20;
-const double kKnockbackImpulse = 800.0;
+const double kKnockbackSpeed = 350.0;
+const double kKnockbackCooldown = 0.25;
 const double kAttackCycleSeconds = SoldierAttackSpec.kPreviewCycleSeconds;
 
 /// War scene: first deployed soldier **is** the cohort anchor (joystick, formation origin); other
@@ -356,6 +357,7 @@ class CohortWarGame extends Forge2DGame {
   late List<Set<String>> _playerDamagedThisPhase;
   late List<bool> _playerWasInAttackPhase;
   late List<bool> _playerAlive;
+  late List<double> _playerKnockbackTimer;
 
   late List<int> _enemyHp;
   late List<int> _enemyMaxHp;
@@ -364,6 +366,7 @@ class CohortWarGame extends Forge2DGame {
   late List<Set<String>> _enemyDamagedThisPhase;
   late List<bool> _enemyWasInAttackPhase;
   late List<bool> _enemyAlive;
+  late List<double> _enemyKnockbackTimer;
 
   void setStick(Offset normalized) {
     stick.setValues(normalized.dx, normalized.dy);
@@ -396,6 +399,7 @@ class CohortWarGame extends Forge2DGame {
     _enemyDamagedThisPhase = <Set<String>>[];
     _enemyWasInAttackPhase = <bool>[];
     _enemyAlive = <bool>[];
+    _enemyKnockbackTimer = <double>[];
 
     _spawnEnemySoldiers(start);
 
@@ -437,6 +441,7 @@ class CohortWarGame extends Forge2DGame {
     );
     _playerWasInAttackPhase = List<bool>.filled(playerCohort.soldierCount, false);
     _playerAlive = List<bool>.filled(playerCohort.soldierCount, true);
+    _playerKnockbackTimer = List<double>.filled(playerCohort.soldierCount, 0);
 
     final _SoldierAccessor playerAccessor = (
       count: () => playerCohort.soldierCount,
@@ -884,10 +889,24 @@ class CohortWarGame extends Forge2DGame {
 
   /// See class doc: neutral-stick chase applies only when an enemy center is in the soldier’s
   /// detection disk but outside their attack disk.
+  void _tickKnockbackTimers(double dt) {
+    for (int i = 0; i < _playerKnockbackTimer.length; i++) {
+      if (_playerKnockbackTimer[i] > 0) {
+        _playerKnockbackTimer[i] = (_playerKnockbackTimer[i] - dt).clamp(0.0, double.infinity);
+      }
+    }
+    for (int i = 0; i < _enemyKnockbackTimer.length; i++) {
+      if (_enemyKnockbackTimer[i] > 0) {
+        _enemyKnockbackTimer[i] = (_enemyKnockbackTimer[i] - dt).clamp(0.0, double.infinity);
+      }
+    }
+  }
+
   void _applyChaseForces() {
     if (!_playerCohortMoving()) {
       for (int i = 0; i < playerSoldierBodies.length; i++) {
         if (!_playerAlive[i]) continue;
+        if (_playerKnockbackTimer[i] > 0) continue;
         final String? ed = _earliestEnemyInDetectionForPlayer(i);
         if (ed == null) continue;
         if (_enemyContactInPlayerEngagementZone(i, ed)) {
@@ -903,6 +922,7 @@ class CohortWarGame extends Forge2DGame {
 
     for (int ei = 0; ei < enemySoldiers.length; ei++) {
       if (!_enemyAlive[ei]) continue;
+      if (_enemyKnockbackTimer[ei] > 0) continue;
       if (_enemySoldierMoving(ei)) continue;
       final String? pd = _earliestTargetInDetectionForEnemy(ei);
       if (pd == null) continue;
@@ -1004,6 +1024,7 @@ class CohortWarGame extends Forge2DGame {
     _enemyDamagedThisPhase.add(<String>{});
     _enemyWasInAttackPhase.add(false);
     _enemyAlive.add(true);
+    _enemyKnockbackTimer.add(0);
   }
 
   void _steer() {
@@ -1028,6 +1049,7 @@ class CohortWarGame extends Forge2DGame {
 
     for (int i = 0; i < playerSoldierBodies.length; i++) {
       if (!_playerAlive[i]) continue;
+      if (_playerKnockbackTimer[i] > 0) continue;
       if (!_playerCohortMoving() &&
           _earliestEnemyInDetectionForPlayer(i) != null) {
         continue;
@@ -1078,6 +1100,7 @@ class CohortWarGame extends Forge2DGame {
   @override
   void update(double dt) {
     if (gameOver.value) return;
+    _tickKnockbackTimers(dt);
     _snapshotVelocitiesBeforeStep();
     _steer();
     playerCohort.update(dt, stick, integratePositions: false);
@@ -1176,9 +1199,10 @@ class CohortWarGame extends Forge2DGame {
             final Vector2 targetPos = enemySoldiers[ej].body.body.position;
             final Vector2 dir = targetPos - attackerPos;
             if (dir.length2 > 0.01) {
-              enemySoldiers[ej].body.body.applyLinearImpulse(
-                dir.normalized() * kKnockbackImpulse,
+              enemySoldiers[ej].body.body.linearVelocity.setFrom(
+                dir.normalized() * kKnockbackSpeed,
               );
+              _enemyKnockbackTimer[ej] = kKnockbackCooldown;
             }
             _spawnDamageText(targetPos, kGildedBastionAttackDmg, playerPalette);
             if (_enemyHp[ej] <= 0) {
@@ -1255,9 +1279,10 @@ class CohortWarGame extends Forge2DGame {
             final Vector2 targetPos = playerSoldierBodies[pj].body.position;
             final Vector2 dir = targetPos - attackerPos;
             if (dir.length2 > 0.01) {
-              playerSoldierBodies[pj].body.applyLinearImpulse(
-                dir.normalized() * kKnockbackImpulse,
+              playerSoldierBodies[pj].body.linearVelocity.setFrom(
+                dir.normalized() * kKnockbackSpeed,
               );
+              _playerKnockbackTimer[pj] = kKnockbackCooldown;
             }
             _spawnDamageText(targetPos, kGildedBastionAttackDmg, attackerPal);
             if (_playerHp[pj] <= 0) _killPlayer(pj);
@@ -1273,9 +1298,10 @@ class CohortWarGame extends Forge2DGame {
             final Vector2 targetPos = enemySoldiers[ej].body.body.position;
             final Vector2 dir = targetPos - attackerPos;
             if (dir.length2 > 0.01) {
-              enemySoldiers[ej].body.body.applyLinearImpulse(
-                dir.normalized() * kKnockbackImpulse,
+              enemySoldiers[ej].body.body.linearVelocity.setFrom(
+                dir.normalized() * kKnockbackSpeed,
               );
+              _enemyKnockbackTimer[ej] = kKnockbackCooldown;
             }
             _spawnDamageText(targetPos, kGildedBastionAttackDmg, attackerPal);
             if (_enemyHp[ej] <= 0) _killEnemy(ej);
@@ -1287,7 +1313,13 @@ class CohortWarGame extends Forge2DGame {
 
   void _killEnemy(int ei) {
     _enemyAlive[ei] = false;
+    final CohortSoldier s = enemySoldiers[ei].soldier;
+    final Vector2 pos = enemySoldiers[ei].body.body.position;
     world.remove(enemySoldiers[ei].body);
+    world.add(_DeathRemnant(
+      worldPos: pos.clone(),
+      model: s.model,
+    ));
     _enemyLockedPlayer[ei] = null;
     _enemyAttackCycleT[ei] = 0;
     for (int i = 0; i < playerCohort.soldierCount; i++) {
@@ -1310,7 +1342,13 @@ class CohortWarGame extends Forge2DGame {
 
   void _killPlayer(int pj) {
     _playerAlive[pj] = false;
+    final CohortSoldier s = playerCohort.soldier(pj);
+    final Vector2 pos = playerSoldierBodies[pj].body.position;
     world.remove(playerSoldierBodies[pj]);
+    world.add(_DeathRemnant(
+      worldPos: pos.clone(),
+      model: s.model,
+    ));
     _playerLockedEnemy[pj] = null;
     _playerAttackCycleT[pj] = 0;
     if (pj == 0) {
@@ -1361,7 +1399,7 @@ class _FloatingDamageText extends Component {
   final int amount;
   final Color color;
 
-  static const double _lifetime = 0.8;
+  static const double _lifetime = 1.2;
   static const double _riseSpeed = 40.0;
   double _elapsed = 0;
 
@@ -1402,6 +1440,158 @@ class _FloatingDamageText extends Component {
     tp.paint(canvas, Offset(worldPos.x - tp.width / 2, worldPos.y - tp.height / 2));
     tp.dispose();
   }
+}
+
+/// Dead soldier remnant: top-down paint splatter that expands, lingers, then fades.
+class _DeathRemnant extends Component {
+  _DeathRemnant({
+    required this.worldPos,
+    required this.model,
+  }) : _rng = math.Random(worldPos.x.hashCode ^ worldPos.y.hashCode);
+
+  final Vector2 worldPos;
+  final SoldierModel model;
+  final math.Random _rng;
+
+  static const double _expandDuration = 0.15;
+  static const double _lingerDuration = 2.5;
+  static const double _fadeDuration = 0.6;
+  static const double _totalLifetime =
+      _expandDuration + _lingerDuration + _fadeDuration;
+
+  static const int _lobeCount = 10;
+  static const int _subDrops = 5;
+
+  double _elapsed = 0;
+
+  late final double _baseRadius;
+  late final List<double> _lobeRadii;
+  late final List<double> _lobeAngles;
+  late final List<_SplatDrop> _drops;
+  late final Color _coreColor;
+  late final Color _rimColor;
+
+  bool _generated = false;
+
+  void _ensureGenerated() {
+    if (_generated) return;
+    _generated = true;
+    _baseRadius = model.paintSize * 0.35;
+    _lobeRadii = List<double>.generate(
+      _lobeCount,
+      (_) => _baseRadius * (0.7 + _rng.nextDouble() * 0.6),
+    );
+    _lobeAngles = List<double>.generate(
+      _lobeCount,
+      (i) => (i / _lobeCount) * 2 * math.pi + (_rng.nextDouble() - 0.5) * 0.3,
+    );
+    _drops = List<_SplatDrop>.generate(_subDrops, (_) {
+      final double a = _rng.nextDouble() * 2 * math.pi;
+      final double dist = _baseRadius * (1.0 + _rng.nextDouble() * 0.8);
+      return _SplatDrop(
+        offset: Offset(math.cos(a) * dist, math.sin(a) * dist),
+        radius: _baseRadius * (0.12 + _rng.nextDouble() * 0.18),
+      );
+    });
+
+    final List<Color> tier = factionTierList(model.displayPalette!);
+    _coreColor = Color.lerp(tier[0], Colors.black, 0.35)!;
+    _rimColor = Color.lerp(tier.length > 1 ? tier[1] : tier[0], Colors.black, 0.5)!;
+  }
+
+  @override
+  int get priority => 1;
+
+  @override
+  void update(double dt) {
+    _elapsed += dt;
+    if (_elapsed >= _totalLifetime) {
+      removeFromParent();
+    }
+  }
+
+  Path _buildSplatPath(double scale) {
+    final Path path = Path();
+    for (int i = 0; i <= _lobeCount; i++) {
+      final int idx = i % _lobeCount;
+      final int next = (i + 1) % _lobeCount;
+      final double a = _lobeAngles[idx];
+      final double r = _lobeRadii[idx] * scale;
+      final double x = math.cos(a) * r;
+      final double y = math.sin(a) * r;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        final double aMid = (a + _lobeAngles[next]) / 2;
+        final double rMid = (_lobeRadii[idx] + _lobeRadii[next]) / 2 * scale * 0.75;
+        path.quadraticBezierTo(
+          math.cos(aMid) * rMid,
+          math.sin(aMid) * rMid,
+          x,
+          y,
+        );
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (model.displayPalette == null) return;
+    _ensureGenerated();
+
+    final double t = _elapsed;
+    final double scale;
+    final double alpha;
+    if (t < _expandDuration) {
+      scale = 0.3 + 0.7 * (t / _expandDuration);
+      alpha = 1.0;
+    } else if (t < _expandDuration + _lingerDuration) {
+      scale = 1.0;
+      alpha = 1.0;
+    } else {
+      scale = 1.0;
+      final double fadeT =
+          ((t - _expandDuration - _lingerDuration) / _fadeDuration)
+              .clamp(0.0, 1.0);
+      alpha = 1.0 - fadeT;
+    }
+
+    canvas.save();
+    canvas.translate(worldPos.x, worldPos.y);
+
+    final Path mainBlob = _buildSplatPath(scale);
+    final Paint corePaint = Paint()
+      ..color = _coreColor.withValues(alpha: alpha * 0.85)
+      ..style = PaintingStyle.fill;
+    final Paint rimPaint = Paint()
+      ..color = _rimColor.withValues(alpha: alpha * 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0 * scale;
+
+    canvas.drawPath(mainBlob, corePaint);
+    canvas.drawPath(mainBlob, rimPaint);
+
+    final Paint dropPaint = Paint()
+      ..color = _coreColor.withValues(alpha: alpha * 0.7)
+      ..style = PaintingStyle.fill;
+    for (final _SplatDrop drop in _drops) {
+      canvas.drawCircle(
+        drop.offset * scale,
+        drop.radius * scale,
+        dropPaint,
+      );
+    }
+
+    canvas.restore();
+  }
+}
+
+class _SplatDrop {
+  const _SplatDrop({required this.offset, required this.radius});
+  final Offset offset;
+  final double radius;
 }
 
 /// Draws zone overlays per soldier following [soldier_structure.md] hierarchy:

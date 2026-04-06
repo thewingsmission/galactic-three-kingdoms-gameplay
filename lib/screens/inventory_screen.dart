@@ -379,14 +379,17 @@ class _InventoryScreenState extends State<InventoryScreen>
                     children: <Widget>[
                       Row(
                         children: <Widget>[
-                          Text(
-                            'Soldier inventory',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                          Flexible(
+                            child: Text(
+                              'Soldier inventory',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          const Spacer(),
+                          const SizedBox(width: 8),
                           _buildPaletteSelector(),
                         ],
                       ),
