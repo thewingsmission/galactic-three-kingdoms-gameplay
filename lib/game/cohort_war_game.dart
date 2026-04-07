@@ -330,6 +330,15 @@ class CohortWarGame extends Forge2DGame {
   final VoidCallback? onTargetAssigned;
   final VoidCallback? onTargetCleared;
   final ValueNotifier<bool> gameOver = ValueNotifier<bool>(false);
+  final ValueNotifier<int> killCountRevision = ValueNotifier<int>(0);
+  final Map<SoldierDesignPalette, int> killCounts = <SoldierDesignPalette, int>{
+    for (final SoldierDesignPalette p in SoldierDesignPalette.values) p: 0,
+  };
+
+  void _recordKill(SoldierDesignPalette killer) {
+    killCounts[killer] = (killCounts[killer] ?? 0) + 1;
+    killCountRevision.value++;
+  }
 
 
   Vector2 stick = Vector2.zero();
@@ -1745,6 +1754,7 @@ class CohortWarGame extends Forge2DGame {
             }
             _spawnDamageText(damagedCenter, atkDmg, playerPalette);
             if (_enemyHp[ej] <= 0) {
+              _recordKill(playerPalette);
               _killEnemy(ej);
             }
           }
@@ -1867,7 +1877,10 @@ class CohortWarGame extends Forge2DGame {
               _playerKnockbackTimer[pj] = kKnockbackCooldown;
             }
             _spawnDamageText(damagedCenter, eAtkDmg, attackerPal);
-            if (_playerHp[pj] <= 0) _killPlayer(pj);
+            if (_playerHp[pj] <= 0) {
+              _recordKill(attackerPal);
+              _killPlayer(pj);
+            }
           }
         }
         for (int ej = 0; ej < enemySoldiers.length; ej++) {
@@ -1886,7 +1899,10 @@ class CohortWarGame extends Forge2DGame {
               _enemyKnockbackTimer[ej] = kKnockbackCooldown;
             }
             _spawnDamageText(damagedCenter, eAtkDmg, attackerPal);
-            if (_enemyHp[ej] <= 0) _killEnemy(ej);
+            if (_enemyHp[ej] <= 0) {
+              _recordKill(attackerPal);
+              _killEnemy(ej);
+            }
           }
         }
         for (int aj = 0; aj < allySoldiers.length; aj++) {
@@ -1921,7 +1937,10 @@ class CohortWarGame extends Forge2DGame {
               _allyKnockbackTimer[aj] = kKnockbackCooldown;
             }
             _spawnDamageText(damagedCenter, eAtkDmg, attackerPal);
-            if (_allyHp[aj] <= 0) _killAlly(aj);
+            if (_allyHp[aj] <= 0) {
+              _recordKill(attackerPal);
+              _killAlly(aj);
+            }
           }
         }
       }
@@ -2027,7 +2046,10 @@ class CohortWarGame extends Forge2DGame {
             _enemyKnockbackTimer[ei] = kKnockbackCooldown;
           }
           _spawnDamageText(damagedCenter, aAtkDmg, attackerPal);
-          if (_enemyHp[ei] <= 0) _killEnemy(ei);
+          if (_enemyHp[ei] <= 0) {
+            _recordKill(attackerPal);
+            _killEnemy(ei);
+          }
         }
       }
     }

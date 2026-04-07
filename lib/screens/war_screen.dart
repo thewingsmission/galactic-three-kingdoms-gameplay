@@ -233,6 +233,39 @@ class _WarScreenState extends State<WarScreen>
             ),
           ),
           Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: ValueListenableBuilder<int>(
+                valueListenable: _game.killCountRevision,
+                builder: (BuildContext context, int _, Widget? child) {
+                  String fmt(int n) => n >= 1000 ? '${(n / 1000).toStringAsFixed(n >= 10000 ? 0 : 1)}k' : '$n';
+                  final int r = _game.killCounts[SoldierDesignPalette.red] ?? 0;
+                  final int y = _game.killCounts[SoldierDesignPalette.yellow] ?? 0;
+                  final int b = _game.killCounts[SoldierDesignPalette.blue] ?? 0;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    color: Colors.black.withValues(alpha: 0.45),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        Text('Red: ${fmt(r)}',
+                          style: TextStyle(color: kRedFactionComponentColors[0], fontSize: 14, fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 32),
+                        Text('Yellow: ${fmt(y)}',
+                          style: TextStyle(color: kYellowFactionComponentColors[0], fontSize: 14, fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 32),
+                        Text('Blue: ${fmt(b)}',
+                          style: TextStyle(color: kBlueFactionComponentColors[0], fontSize: 14, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          Positioned(
             left: 24,
             bottom: 24,
             child: SafeArea(
