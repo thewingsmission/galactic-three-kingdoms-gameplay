@@ -70,7 +70,9 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
             p.motion == SoldierPartMotion.earSwing ||
             p.motion == SoldierPartMotion.orbitSpin ||
             p.motion == SoldierPartMotion.orbitSpinProbe ||
-            p.motion == SoldierPartMotion.orbitSpinRadialProbe,
+            p.motion == SoldierPartMotion.orbitSpinRadialProbe ||
+            p.motion == SoldierPartMotion.pulseScale ||
+            p.motion == SoldierPartMotion.verticalBob,
       );
 
   /// Same stable model point as [SoldierAttackPreviewColumn] (probe pose) for range rings.

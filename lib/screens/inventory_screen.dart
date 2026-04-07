@@ -48,6 +48,7 @@ class _InventoryScreenState extends State<InventoryScreen>
   final List<bool> _selected = List<bool>.filled(_inventorySize, false);
   final Map<int, Offset> _offsets = <int, Offset>{};
   late final SoldierContact _soldierContact;
+  late final List<SoldierContact> _soldierContacts;
 
   /// Explicit leader — the soldier placed at center (first selected).
   int? _cohortLeaderIndex;
@@ -71,6 +72,10 @@ class _InventoryScreenState extends State<InventoryScreen>
   void initState() {
     super.initState();
     _soldierContact = SoldierContact.fromDesign(_kRoster.first, _kFormationSoldierPx);
+    _soldierContacts = <SoldierContact>[
+      for (final SoldierDesign d in _kRoster)
+        SoldierContact.fromDesign(d, _kFormationSoldierPx),
+    ];
     _idleMotionCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
@@ -224,23 +229,29 @@ class _InventoryScreenState extends State<InventoryScreen>
     }
   }
 
-  // ── Hit testing for drag (contact zone) ────────────────────────────
+  // ── Hit testing for drag (target zone) ─────────────────────────────
 
-  /// Find the topmost (highest Y) selected soldier whose contact zone
-  /// contains [touchLocal] (relative to panel center). Skips the leader.
+  /// Find the topmost (highest Y) selected soldier whose **target** zone
+  /// contains [touchLocal] (relative to panel center). Falls back to
+  /// contact zone, then circle radius. Skips the leader.
   int? _hitTestSoldier(Offset touchLocal) {
     final int? leader = _firstSelectedIndex();
-    final double r = _soldierContact.radius;
     int? best;
     double bestY = double.negativeInfinity;
     for (int i = 0; i < _inventorySize; i++) {
       if (!_selected[i]) continue;
       if (i == leader) continue;
+      final SoldierContact sc = _soldierContacts[i];
       final Offset o = _offsets[i] ?? Offset.zero;
       final Offset local = touchLocal - o;
-      final bool hit = _soldierContact.hullVertices != null
-          ? _pointInPolygon(local, _soldierContact.hullVertices!)
-          : local.distance <= r;
+      final bool hit;
+      if (sc.targetHullVertices != null && sc.targetHullVertices!.length >= 3) {
+        hit = _pointInPolygon(local, sc.targetHullVertices!);
+      } else if (sc.hullVertices != null && sc.hullVertices!.length >= 3) {
+        hit = _pointInPolygon(local, sc.hullVertices!);
+      } else {
+        hit = local.distance <= sc.radius;
+      }
       if (hit && o.dy > bestY) {
         best = i;
         bestY = o.dy;

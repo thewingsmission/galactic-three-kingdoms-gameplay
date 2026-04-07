@@ -90,6 +90,27 @@ List<SoldierShapePart> _scalePartsToWidth(
       .toList();
 }
 
+/// Circle vertices centred at origin with [n] segments.
+List<Offset> _circleVerts(double r, int n) =>
+    List<Offset>.generate(n, (int i) {
+      final double a = -math.pi / 2 + i * 2 * math.pi / n;
+      return Offset(r * math.cos(a), r * math.sin(a));
+    });
+
+/// Engagement annulus vertices — 6 inner + 6 outer, for min/max distance detection.
+List<Offset> _engagementAnnulusVerts(double inner, double outer) {
+  final List<Offset> v = <Offset>[];
+  for (int k = 0; k < 6; k++) {
+    final double a = k * math.pi / 3;
+    v.add(Offset(inner * math.cos(a), inner * math.sin(a)));
+  }
+  for (int k = 0; k < 6; k++) {
+    final double a = (k + 0.5) * math.pi / 3;
+    v.add(Offset(outer * math.cos(a), outer * math.sin(a)));
+  }
+  return v;
+}
+
 /// Small upper fin — pairs with a main hull so silhouettes can always use **≥2** parts.
 List<Offset> _upFin({
   double apexY = -33,
@@ -552,12 +573,12 @@ const List<Offset> _kGildedBastionContactHull = <Offset>[
   Offset(-18, 22),
 ];
 
-/// Target zone = contact hull × 1.95 (scaled about centroid (0, −2); original ×1.5 enlarged 30%).
+/// Target zone = previous × 0.75 (scaled about centroid (0, −2)).
 const List<Offset> _kGildedBastionTargetHull = <Offset>[
-  Offset(-13.65, -48.8),
-  Offset(13.65, -48.8),
-  Offset(35.1, 44.8),
-  Offset(-35.1, 44.8),
+  Offset(-14.33, -51.14),
+  Offset(14.33, -51.14),
+  Offset(36.86, 47.14),
+  Offset(-36.86, 47.14),
 ];
 
 final SoldierDesign _kLegendaryCastleCat = SoldierDesign(
@@ -1904,13 +1925,16 @@ List<SoldierShapePart> _boxGrinProdParts() {
       fillVertices: const <Offset>[
         Offset(-18, -18), Offset(18, -18), Offset(18, 18), Offset(-18, 18),
       ],
-      fillTier: 2, strokeWidth: 2.2, stackRole: SoldierPartStackRole.body,
+      fillTier: 2, strokeWidth: 2.2, stackRole: SoldierPartStackRole.attack,
     ),
-    SoldierShapePart(fillVertices: roundEye(-6.5, -4, 1.8375), fillTier: 0, strokeWidth: 0),
-    SoldierShapePart(fillVertices: roundEye(6.5, -4, 1.8375), fillTier: 0, strokeWidth: 0),
+    SoldierShapePart(fillVertices: roundEye(-6.5, -4, 1.8375), fillTier: 0, strokeWidth: 0, stackRole: SoldierPartStackRole.attack),
+    SoldierShapePart(fillVertices: roundEye(6.5, -4, 1.8375), fillTier: 0, strokeWidth: 0, stackRole: SoldierPartStackRole.attack),
     SoldierShapePart(
       strokePolyline: smileArc(0, 5, 16, 4.5, 12),
       fillTier: 1, transparentFill: true, strokeWidth: 4.86,
+      motion: SoldierPartMotion.pulseScale,
+      motionAmplitudeRad: 0.3,
+      stackRole: SoldierPartStackRole.attack,
     ),
   ]);
 }
@@ -2055,9 +2079,9 @@ List<SoldierShapePart> _emberSigilProdParts() {
     stackRole: SoldierPartStackRole.contact,
   ));
 
-  // ── Target zone: contact × 2.16 (already rotated) ──
+  // ── Target zone: contact × 2.592 (previous ×2.16 enlarged 20%) ──
   out.add(SoldierShapePart(
-    fillVertices: contactHex.map((Offset v) => v * 2.16).toList(),
+    fillVertices: contactHex.map((Offset v) => v * 2.592).toList(),
     fillTier: 1,
     transparentFill: true,
     strokeWidth: 0,
@@ -2111,7 +2135,30 @@ final SoldierDesign _kProductionBoxGrin = SoldierDesign(
   id: 'mild_square_prod',
   name: 'Mild Square',
   rarity: SoldierRarity.common,
-  parts: _scalePartsToWidth(_boxGrinProdParts(), 60),
+  parts: <SoldierShapePart>[
+    ..._scalePartsToWidth(_boxGrinProdParts(), 60),
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(-25.5, -25.5), Offset(25.5, -25.5),
+        Offset(25.5, 25.5), Offset(-25.5, 25.5),
+      ],
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.contact,
+    ),
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(-36.975, -36.975), Offset(36.975, -36.975),
+        Offset(36.975, 36.975), Offset(-36.975, 36.975),
+      ],
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.target,
+    ),
+    SoldierShapePart(
+      fillVertices: _engagementAnnulusVerts(50, 110),
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.engagement,
+    ),
+  ],
   attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
 );
 
@@ -2134,21 +2181,30 @@ List<SoldierShapePart> _triFuryProdParts() {
   return _centerParts(<SoldierShapePart>[
     SoldierShapePart(
       fillVertices: triBody, fillTier: 2, strokeWidth: 2.2,
-      stackRole: SoldierPartStackRole.body,
+      stackRole: SoldierPartStackRole.attack,
     ),
-    SoldierShapePart(fillVertices: ellipseEye(-6, -1, 1.47, 2.66), fillTier: 0, strokeWidth: 0),
-    SoldierShapePart(fillVertices: ellipseEye(6, -1, 1.47, 2.66), fillTier: 0, strokeWidth: 0),
+    SoldierShapePart(fillVertices: ellipseEye(-6, -1, 1.47, 2.66), fillTier: 0, strokeWidth: 0, stackRole: SoldierPartStackRole.attack),
+    SoldierShapePart(fillVertices: ellipseEye(6, -1, 1.47, 2.66), fillTier: 0, strokeWidth: 0, stackRole: SoldierPartStackRole.attack),
     SoldierShapePart(
       strokePolyline: const <Offset>[Offset(-8, -6.5), Offset(-3.5, -5)],
       fillTier: 1, transparentFill: true, strokeWidth: 5.4,
+      motion: SoldierPartMotion.verticalBob,
+      motionSign: -1.0,
+      motionAmplitudeRad: 2.5,
+      stackRole: SoldierPartStackRole.attack,
     ),
     SoldierShapePart(
       strokePolyline: const <Offset>[Offset(3.5, -5), Offset(8, -6.5)],
       fillTier: 1, transparentFill: true, strokeWidth: 5.4,
+      motion: SoldierPartMotion.verticalBob,
+      motionSign: -1.0,
+      motionAmplitudeRad: 2.5,
+      stackRole: SoldierPartStackRole.attack,
     ),
     SoldierShapePart(
       strokePolyline: const <Offset>[Offset(-7, 8), Offset(7, 6)],
       fillTier: 1, transparentFill: true, strokeWidth: 5.4,
+      stackRole: SoldierPartStackRole.attack,
     ),
   ]);
 }
@@ -2157,7 +2213,28 @@ final SoldierDesign _kProductionTriFury = SoldierDesign(
   id: 'smug_triangle_prod',
   name: 'Smug Triangle',
   rarity: SoldierRarity.common,
-  parts: _scalePartsToWidth(_triFuryProdParts(), 60),
+  parts: <SoldierShapePart>[
+    ..._scalePartsToWidth(_triFuryProdParts(), 60),
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(0, -29.445), Offset(25.5, 14.723), Offset(-25.5, 14.723),
+      ],
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.contact,
+    ),
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(0, -42.695), Offset(36.975, 21.348), Offset(-36.975, 21.348),
+      ],
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.target,
+    ),
+    SoldierShapePart(
+      fillVertices: _engagementAnnulusVerts(50, 110),
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.engagement,
+    ),
+  ],
   attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
 );
 
@@ -2190,19 +2267,24 @@ List<SoldierShapePart> _orbJoyProdParts() {
   return _centerParts(<SoldierShapePart>[
     SoldierShapePart(
       fillVertices: circBody, fillTier: 2, strokeWidth: 2.2,
-      stackRole: SoldierPartStackRole.body,
+      stackRole: SoldierPartStackRole.attack,
     ),
     SoldierShapePart(
       strokePolyline: arcEye(-7.5, -3, 8, 4, 10),
       fillTier: 1, transparentFill: true, strokeWidth: 4.32,
+      stackRole: SoldierPartStackRole.attack,
     ),
     SoldierShapePart(
       strokePolyline: arcEye(7.5, -3, 8, 4, 10),
       fillTier: 1, transparentFill: true, strokeWidth: 4.32,
+      stackRole: SoldierPartStackRole.attack,
     ),
     SoldierShapePart(
       fillVertices: openMouth(0, 5, 9, 7, 12),
       fillTier: 6, strokeWidth: 2.0,
+      motion: SoldierPartMotion.pulseScale,
+      motionAmplitudeRad: 0.3,
+      stackRole: SoldierPartStackRole.attack,
     ),
   ]);
 }
@@ -2211,7 +2293,26 @@ final SoldierDesign _kProductionOrbJoy = SoldierDesign(
   id: 'jolly_circle_prod',
   name: 'Jolly Circle',
   rarity: SoldierRarity.common,
-  parts: _scalePartsToWidth(_orbJoyProdParts(), 60),
+  parts: <SoldierShapePart>[
+    ..._scalePartsToWidth(_orbJoyProdParts(), 60),
+    // Contact zone: circle body × 0.85 → r = 25.5
+    SoldierShapePart(
+      fillVertices: _circleVerts(25.5, 20),
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.contact,
+    ),
+    // Target zone: contact × 1.45 → r = 36.975
+    SoldierShapePart(
+      fillVertices: _circleVerts(36.975, 20),
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.target,
+    ),
+    SoldierShapePart(
+      fillVertices: _engagementAnnulusVerts(50, 110),
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.engagement,
+    ),
+  ],
   attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
 );
 

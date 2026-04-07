@@ -49,6 +49,13 @@ enum SoldierPartMotion {
   /// [motionAmplitudeRad] = angular speed for idle spin.
   /// [motionProbeDistance] = max radial thrust distance in model units.
   orbitSpinRadialProbe,
+  /// Idle pulsing scale around the part centroid.
+  /// [motionAmplitudeRad] = max extra scale (e.g. 0.3 → grows from 1.0× to 1.3×).
+  pulseScale,
+  /// Idle vertical bob (up/down translation along Y).
+  /// [motionAmplitudeRad] = max displacement in model units.
+  /// [motionSign] controls direction (+1 = down-first, −1 = up-first).
+  verticalBob,
 }
 
 /// Resolved fill + stroke for one paint pass.

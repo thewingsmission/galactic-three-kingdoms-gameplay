@@ -248,6 +248,27 @@ class MultiPolygonSoldierPainter extends CustomPainter {
     double? attackCycleT,
   ) {
     if (raw == null) return null;
+
+    if (part.motion == SoldierPartMotion.pulseScale) {
+      final double phase = motionT * math.pi * 2;
+      final double sf = 1.0 + part.motionAmplitudeRad * (0.5 - 0.5 * math.cos(phase));
+      if ((sf - 1.0).abs() < 1e-6) return raw;
+      final Offset cen = _sCentroid(raw);
+      return raw
+          .map((Offset v) => Offset(
+                cen.dx + (v.dx - cen.dx) * sf,
+                cen.dy + (v.dy - cen.dy) * sf,
+              ))
+          .toList();
+    }
+
+    if (part.motion == SoldierPartMotion.verticalBob) {
+      final double phase = motionT * math.pi * 2;
+      final double dy = part.motionSign * part.motionAmplitudeRad * math.sin(phase);
+      if (dy.abs() < 1e-6) return raw;
+      return raw.map((Offset v) => Offset(v.dx, v.dy + dy)).toList();
+    }
+
     final double th = _sTheta(part, motionT);
     final List<Offset> afterWing = th == 0
         ? raw
