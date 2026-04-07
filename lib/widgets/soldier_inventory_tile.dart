@@ -32,6 +32,16 @@ class SoldierInventoryTile extends StatefulWidget {
 class _SoldierInventoryTileState extends State<SoldierInventoryTile>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+  double _lastCtrlValue = 0;
+  double _continuousMotionT = 0;
+
+  void _accumulateMotionT() {
+    final double curr = _ctrl.value;
+    double delta = curr - _lastCtrlValue;
+    if (delta < 0) delta += 1.0;
+    _continuousMotionT += delta;
+    _lastCtrlValue = curr;
+  }
 
   @override
   void initState() {
@@ -39,7 +49,9 @@ class _SoldierInventoryTileState extends State<SoldierInventoryTile>
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
-    )..repeat();
+    );
+    _ctrl.addListener(_accumulateMotionT);
+    _ctrl.repeat();
   }
 
   @override
@@ -85,7 +97,7 @@ class _SoldierInventoryTileState extends State<SoldierInventoryTile>
                             return SoldierAttackPreviewColumn(
                               design: design,
                               palette: widget.rosterPalette,
-                              motionT: _ctrl.value,
+                              motionT: _continuousMotionT,
                               strokeWidth: 2.25,
                               uniformIdleDesigns: kSoldierDesignCatalog,
                             );

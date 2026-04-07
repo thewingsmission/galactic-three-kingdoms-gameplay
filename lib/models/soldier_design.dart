@@ -16,6 +16,8 @@ enum SoldierPartStackRole {
   target,
   /// Engagement reach polygon. Omitted from sprite paint; used for zone overlay rendering.
   engagement,
+  /// Per-component damage reach. Omitted from sprite paint; drawn in range overlay.
+  hitZone,
   attack,
   overlay,
 }
@@ -32,6 +34,21 @@ enum SoldierPartMotion {
   /// (not radians). Filled polygons translate; 2-point open polylines extend the **second** vertex along −Y.
   /// Driven by painter [attackCycleT] ∈ [0,1); omit [attackCycleT] for rest pose.
   attackProbeExtend,
+  /// Continuous orbit rotation around [motionPivot] (idle). One revolution per motionT cycle.
+  /// [motionSign] controls direction (+1 = CCW, −1 = CW on screen).
+  orbitSpin,
+  /// [orbitSpin] + forward probe along −Y during attack.
+  /// [motionAmplitudeRad] = probe distance in model units (sign ignored for probe).
+  orbitSpinProbe,
+  /// Radial outward probe during attack. Vertices move away from the origin
+  /// along the direction from origin toward the part's rest-position centroid.
+  /// [motionAmplitudeRad] = max thrust distance in model units. No idle motion.
+  radialProbe,
+  /// [orbitSpin] idle rotation + radial outward probe during attack.
+  /// [motionPivot] = rotation center (for idle spin).
+  /// [motionAmplitudeRad] = angular speed for idle spin.
+  /// [motionProbeDistance] = max radial thrust distance in model units.
+  orbitSpinRadialProbe,
 }
 
 /// Resolved fill + stroke for one paint pass.
@@ -68,6 +85,7 @@ class SoldierShapePart {
     this.motionPivot,
     this.motionSign = 1.0,
     this.motionAmplitudeRad = 0.42,
+    this.motionProbeDistance = 0,
     this.stackRole = SoldierPartStackRole.body,
   })  : assert(fillTier >= 1 && fillTier <= 5),
         assert(
@@ -93,8 +111,13 @@ class SoldierShapePart {
   /// +1 / −1 to mirror left/right wings.
   final double motionSign;
   /// For [SoldierPartMotion.wingFlap] / [SoldierPartMotion.earSwing]: peak |rotation| in radians.
-  /// For [SoldierPartMotion.attackProbeExtend]: forward slide distance in model units.
+  /// For [SoldierPartMotion.attackProbeExtend] / [SoldierPartMotion.radialProbe]: forward/radial
+  /// slide distance in model units.
   final double motionAmplitudeRad;
+
+  /// Separate attack-probe distance for combined motions (e.g. [SoldierPartMotion.orbitSpinRadialProbe])
+  /// where [motionAmplitudeRad] is reserved for idle rotation speed. 0 = unused.
+  final double motionProbeDistance;
 
   /// Z-order / parent grouping for paint and range overlays (see [SoldierPartStackRole]).
   final SoldierPartStackRole stackRole;

@@ -130,7 +130,8 @@ class SoldierRangeRingsPainter extends CustomPainter {
     for (final SoldierShapePart p in parts) {
       if (p.stackRole == SoldierPartStackRole.contact ||
           p.stackRole == SoldierPartStackRole.target ||
-          p.stackRole == SoldierPartStackRole.engagement) {
+          p.stackRole == SoldierPartStackRole.engagement ||
+          p.stackRole == SoldierPartStackRole.hitZone) {
         continue;
       }
       _accumulateVerts(
@@ -321,6 +322,31 @@ class SoldierRangeRingsPainter extends CustomPainter {
       break;
     }
 
+    // --- Hit zone polygons ---
+    for (final SoldierShapePart p in parts) {
+      if (p.stackRole != SoldierPartStackRole.hitZone) continue;
+      final List<Offset>? hv =
+          MultiPolygonSoldierPainter.transformedFillVertices(p, motionT, attackT);
+      if (hv == null || hv.length < 3) continue;
+      final Path hitPath = Path();
+      final Offset h0 = toScreen(hv.first);
+      hitPath.moveTo(h0.dx, h0.dy);
+      for (int i = 1; i < hv.length; i++) {
+        final Offset hs = toScreen(hv[i]);
+        hitPath.lineTo(hs.dx, hs.dy);
+      }
+      hitPath.close();
+      final double hitStroke = math.max(1.5, conStroke * 0.65);
+      canvas.drawPath(
+        hitPath,
+        Paint()
+          ..color = const Color(0xFF1B5E20).withValues(alpha: 0.85)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = hitStroke
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+
     Offset? crownCentroid;
     double crownCircumR = 0;
     for (final SoldierShapePart p in parts) {
@@ -358,18 +384,6 @@ class SoldierRangeRingsPainter extends CustomPainter {
       canvas.drawCircle(
         ac,
         ar,
-        Paint()
-          ..color = const Color(0xFF1B5E20).withValues(alpha: 0.92)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = atkStroke,
-      );
-    } else if (crownCentroid == null) {
-      final double s = worldToPixelScale(size, contactRadius, attackScale: attackScale);
-      final double px = contactRadius * attackScale * s;
-      final double atkStroke = math.max(2.0, math.min(5.0, px * 0.18));
-      canvas.drawCircle(
-        c,
-        px,
         Paint()
           ..color = const Color(0xFF1B5E20).withValues(alpha: 0.92)
           ..style = PaintingStyle.stroke

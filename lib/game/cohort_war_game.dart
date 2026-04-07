@@ -2249,7 +2249,7 @@ class PlayerFormationPainter extends Component {
 
   @override
   void update(double dt) {
-    _motionT = (_motionT + dt / _idleCycleSec) % 1.0;
+    _motionT += dt / _idleCycleSec;
   }
 
   @override
@@ -2329,7 +2329,7 @@ class EnemySoldiersPainter extends Component {
 
   @override
   void update(double dt) {
-    _motionT = (_motionT + dt / _idleCycleSec) % 1.0;
+    _motionT += dt / _idleCycleSec;
   }
 
   @override

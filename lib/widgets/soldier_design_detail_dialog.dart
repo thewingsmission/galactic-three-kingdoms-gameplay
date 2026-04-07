@@ -55,17 +55,22 @@ class _SoldierDesignDetailDialogBody extends StatefulWidget {
 class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDialogBody>
     with SingleTickerProviderStateMixin {
   late final AnimationController _attackCtrl;
+  double _lastCtrlValue = 0;
+  double _continuousMotionT = 0;
   late SoldierDesignPalette _palette;
   /// Range plot position in ruler coords (shown next to panel title on touch).
   String? _rangesPlotCoord;
 
   List<SoldierShapePart> get _parts => widget.design.parts;
 
-  /// Idle motion (wings / ears) — [SoldierPartMotion.attackProbeExtend] is attack column only.
+  /// Idle motion (wings / ears / orbit spin) — [SoldierPartMotion.attackProbeExtend] is attack column only.
   bool get _hasIdlePartMotion => _parts.any(
         (SoldierShapePart p) =>
             p.motion == SoldierPartMotion.wingFlap ||
-            p.motion == SoldierPartMotion.earSwing,
+            p.motion == SoldierPartMotion.earSwing ||
+            p.motion == SoldierPartMotion.orbitSpin ||
+            p.motion == SoldierPartMotion.orbitSpinProbe ||
+            p.motion == SoldierPartMotion.orbitSpinRadialProbe,
       );
 
   /// Same stable model point as [SoldierAttackPreviewColumn] (probe pose) for range rings.
@@ -85,7 +90,17 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
         milliseconds:
             (SoldierAttackSpec.kPreviewCycleSeconds * 1000).round(),
       ),
-    )..repeat();
+    );
+    _attackCtrl.addListener(_accumulateMotionT);
+    _attackCtrl.repeat();
+  }
+
+  void _accumulateMotionT() {
+    final double curr = _attackCtrl.value;
+    double delta = curr - _lastCtrlValue;
+    if (delta < 0) delta += 1.0;
+    _continuousMotionT += delta;
+    _lastCtrlValue = curr;
   }
 
   @override
@@ -291,7 +306,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                                           parts: _parts,
                                           displayPalette: _palette,
                                           strokeWidth: 2.25,
-                                          motionT: _attackCtrl.value,
+                                          motionT: _continuousMotionT,
                                           uniformWorldScale: sigma,
                                           fixedModelAnchor: idleAnchor,
                                           crownVfxMode:
@@ -331,7 +346,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                           return SoldierAttackPreviewColumn(
                             design: widget.design,
                             palette: _palette,
-                            motionT: _attackCtrl.value,
+                            motionT: _continuousMotionT,
                             strokeWidth: 2.25,
                             uniformIdleDesigns: kSoldierDesignCatalog,
                           );
@@ -429,7 +444,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                             animation: _attackCtrl,
                             builder:
                                 (BuildContext context, Widget? child) {
-                              final double t = _attackCtrl.value;
+                              final double t = _continuousMotionT;
                               return Listener(
                                 behavior: HitTestBehavior.opaque,
                                 onPointerDown: (PointerDownEvent e) {

@@ -42,7 +42,7 @@ class _InventoryScreenState extends State<InventoryScreen>
     for (int i = 0; i < _inventorySize; i++) kProductionSoldierDesignCatalog.first,
   ]);
 
-  SoldierDesignPalette _palette = SoldierDesignPalette.red;
+  SoldierDesignPalette _palette = SoldierDesignPalette.yellow;
 
   final List<bool> _selected = List<bool>.filled(_inventorySize, false);
   final Map<int, Offset> _offsets = <int, Offset>{};
@@ -55,6 +55,16 @@ class _InventoryScreenState extends State<InventoryScreen>
   int? _dragIndex;
 
   late final AnimationController _idleMotionCtrl;
+  double _lastIdleValue = 0;
+  double _continuousMotionT = 0;
+
+  void _accumulateMotionT() {
+    final double curr = _idleMotionCtrl.value;
+    double delta = curr - _lastIdleValue;
+    if (delta < 0) delta += 1.0;
+    _continuousMotionT += delta;
+    _lastIdleValue = curr;
+  }
 
   @override
   void initState() {
@@ -63,7 +73,9 @@ class _InventoryScreenState extends State<InventoryScreen>
     _idleMotionCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
-    )..repeat();
+    );
+    _idleMotionCtrl.addListener(_accumulateMotionT);
+    _idleMotionCtrl.repeat();
   }
 
   @override
@@ -547,7 +559,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                                         painter: _CrosshairPainter(),
                                       ),
                                     ),
-                                    ..._buildFormationSoldiers(panelSize, _idleMotionCtrl.value),
+                                    ..._buildFormationSoldiers(panelSize, _continuousMotionT),
                                   ],
                                 );
                               },

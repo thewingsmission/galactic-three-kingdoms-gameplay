@@ -98,7 +98,8 @@ class MultiPolygonSoldierPainter extends CustomPainter {
     for (final SoldierShapePart p in parts) {
       if (p.stackRole == SoldierPartStackRole.contact ||
           p.stackRole == SoldierPartStackRole.target ||
-          p.stackRole == SoldierPartStackRole.engagement) {
+          p.stackRole == SoldierPartStackRole.engagement ||
+          p.stackRole == SoldierPartStackRole.hitZone) {
         fillX.add(null);
         strokeX.add(null);
         continue;
@@ -141,7 +142,8 @@ class MultiPolygonSoldierPainter extends CustomPainter {
     for (final SoldierShapePart p in parts) {
       if (p.stackRole == SoldierPartStackRole.contact ||
           p.stackRole == SoldierPartStackRole.target ||
-          p.stackRole == SoldierPartStackRole.engagement) {
+          p.stackRole == SoldierPartStackRole.engagement ||
+          p.stackRole == SoldierPartStackRole.hitZone) {
         fillX.add(null);
         strokeX.add(null);
         continue;
@@ -226,6 +228,11 @@ class MultiPolygonSoldierPainter extends CustomPainter {
   }
 
   static double _sTheta(SoldierShapePart part, double motionT) {
+    if (part.motion == SoldierPartMotion.orbitSpin ||
+        part.motion == SoldierPartMotion.orbitSpinProbe ||
+        part.motion == SoldierPartMotion.orbitSpinRadialProbe) {
+      return part.motionSign * part.motionAmplitudeRad * motionT;
+    }
     if (part.motion != SoldierPartMotion.wingFlap &&
         part.motion != SoldierPartMotion.earSwing) {
       return 0;
@@ -246,8 +253,11 @@ class MultiPolygonSoldierPainter extends CustomPainter {
         ? raw
         : raw.map((Offset v) => _sRotateAround(v, _sPivot(part), th)).toList();
 
-    final double e = attackCycleT != null &&
-            part.motion == SoldierPartMotion.attackProbeExtend
+    final bool isLinearProbe = part.motion == SoldierPartMotion.attackProbeExtend ||
+        part.motion == SoldierPartMotion.orbitSpinProbe;
+    final bool isRadialProbe = part.motion == SoldierPartMotion.radialProbe ||
+        part.motion == SoldierPartMotion.orbitSpinRadialProbe;
+    final double e = attackCycleT != null && (isLinearProbe || isRadialProbe)
         ? attackProbeEnvelope(attackCycleT)
         : 0.0;
     if (e == 0) {
@@ -257,6 +267,9 @@ class MultiPolygonSoldierPainter extends CustomPainter {
 
     final List<Offset> base =
         th == 0 ? List<Offset>.from(raw) : afterWing;
+    if (isRadialProbe) {
+      return _applyRadialProbe(part, raw, base, e);
+    }
     return _applyAttackProbe(part, base, e);
   }
 
@@ -265,7 +278,9 @@ class MultiPolygonSoldierPainter extends CustomPainter {
     List<Offset> verts,
     double e,
   ) {
-    final double dist = part.motionSign * part.motionAmplitudeRad * e;
+    final double dist = part.motion == SoldierPartMotion.orbitSpinProbe
+        ? part.motionAmplitudeRad.abs() * e
+        : part.motionSign * part.motionAmplitudeRad * e;
     final Offset delta = Offset(0, -dist);
     if (verts.length == 2) {
       return <Offset>[verts[0], verts[1] + delta];
@@ -289,6 +304,25 @@ class MultiPolygonSoldierPainter extends CustomPainter {
       }
     }
     return verts.map((Offset v) => v + delta).toList();
+  }
+
+  /// Radial outward probe: moves [transformed] vertices away from the origin
+  /// along the direction from origin to the centroid of [raw] (rest-position vertices).
+  static List<Offset> _applyRadialProbe(
+    SoldierShapePart part,
+    List<Offset> raw,
+    List<Offset> transformed,
+    double e,
+  ) {
+    final Offset cen = _sCentroid(raw);
+    final double len = cen.distance;
+    if (len < 1e-6) return transformed;
+    final double dist = part.motion == SoldierPartMotion.orbitSpinRadialProbe
+        ? part.motionProbeDistance * e
+        : part.motionAmplitudeRad.abs() * e;
+    final Offset dir = Offset(cen.dx / len, cen.dy / len);
+    final Offset delta = dir * dist;
+    return transformed.map((Offset v) => v + delta).toList();
   }
 
   /// Transformed fill vertices (same motion as [paint]); for overlays (e.g. range preview).
@@ -651,14 +685,16 @@ class MultiPolygonSoldierPainter extends CustomPainter {
           if (pair.fill.a > 0) {
             canvas.drawPath(path, Paint()..color = pair.fill..style = PaintingStyle.fill);
           }
-          canvas.drawPath(
-            path,
-            Paint()
-              ..color = pair.stroke
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = outlinePx
-              ..strokeJoin = StrokeJoin.round,
-          );
+          if (part.strokeWidth > 0) {
+            canvas.drawPath(
+              path,
+              Paint()
+                ..color = pair.stroke
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = outlinePx
+                ..strokeJoin = StrokeJoin.round,
+            );
+          }
         }
 
         final List<Offset>? sv = strokeX[i];
