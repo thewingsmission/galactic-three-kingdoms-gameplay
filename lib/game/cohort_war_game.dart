@@ -386,6 +386,18 @@ class CohortWarGame extends Forge2DGame {
   late List<bool> _enemyAlive;
   late List<double> _enemyKnockbackTimer;
 
+  // --- Ally state ---
+  final List<EnemySoldier> allySoldiers = <EnemySoldier>[];
+  late List<double> _lastAllySoldierFacing;
+  late List<int> _allyHp;
+  late List<int> _allyMaxHp;
+  late List<double> _allyAttackCycleT;
+  late List<String?> _allyLockedEnemy;
+  late List<Set<String>> _allyDamagedThisPhase;
+  late List<bool> _allyWasInAttackPhase;
+  late List<bool> _allyAlive;
+  late List<double> _allyKnockbackTimer;
+
   int? _targetEnemyIndex;
   WarActionMode _actionMode = WarActionMode.defense;
 
@@ -516,7 +528,18 @@ class CohortWarGame extends Forge2DGame {
     _enemyAlive = <bool>[];
     _enemyKnockbackTimer = <double>[];
 
+    _lastAllySoldierFacing = <double>[];
+    _allyHp = <int>[];
+    _allyMaxHp = <int>[];
+    _allyAttackCycleT = <double>[];
+    _allyLockedEnemy = <String?>[];
+    _allyDamagedThisPhase = <Set<String>>[];
+    _allyWasInAttackPhase = <bool>[];
+    _allyAlive = <bool>[];
+    _allyKnockbackTimer = <double>[];
+
     _spawnEnemySoldiers(start);
+    _spawnAllySoldiers(start);
 
     final List<SoldierContactBody> pb = <SoldierContactBody>[];
     for (int i = 0; i < playerCohort.soldierCount; i++) {
@@ -588,6 +611,18 @@ class CohortWarGame extends Forge2DGame {
     );
 
     await world.add(
+      EnemySoldiersPainter(
+        enemyCount: () => allySoldiers.length,
+        soldier: (int i) => allySoldiers[i].soldier,
+        soldierWorldPosition: (int i) => allySoldiers[i].body.body.position,
+        visualAngleForSoldier: _allySoldierRenderAngle,
+        attackCycleForSoldier: (int i) =>
+            _allyLockedEnemy[i] != null ? _allyAttackCycleT[i] : null,
+        isAlive: (int i) => _allyAlive[i],
+      ),
+    );
+
+    await world.add(
       PlayerFormationPainter(
         runtime: playerCohort,
         soldierWorldPosition: (int i) => playerSoldierBodies[i].body.position,
@@ -639,6 +674,26 @@ class CohortWarGame extends Forge2DGame {
   double _enemySoldierRenderAngle(int enemyIndex) =>
       _enemySoldierFacingAngle(enemyIndex);
 
+  double _allySoldierFacingAngle(int ai) {
+    final EnemySoldier as2 = allySoldiers[ai];
+    final Vector2 p = as2.body.body.position;
+    final String? target = _allyLockedEnemy[ai];
+    double angle = _lastAllySoldierFacing[ai];
+    if (target != null) {
+      final int ei = int.parse(target.substring(2));
+      if (ei < enemySoldiers.length && _enemyAlive[ei]) {
+        final Vector2 d = enemySoldiers[ei].body.body.position - p;
+        if (d.length2 > 1e-12) {
+          angle = _aimAngleToward(d);
+        }
+      }
+    }
+    _lastAllySoldierFacing[ai] = angle;
+    return angle;
+  }
+
+  double _allySoldierRenderAngle(int ai) => _allySoldierFacingAngle(ai);
+
   bool _playerCohortMoving() =>
       stick.length2 > _stickNeutral * _stickNeutral;
 
@@ -660,6 +715,10 @@ class CohortWarGame extends Forge2DGame {
   /// Resolve any target key ('p-N' or 'e-N') to world position.
   Vector2 _targetWorldPos(String key) {
     if (key.startsWith('p-')) return _playerWorldPosFromKey(key);
+    if (key.startsWith('a-')) {
+      final int ai = int.parse(key.substring(2));
+      return allySoldiers[ai].body.body.position;
+    }
     return _enemyWorldPosFromKey(key);
   }
 
@@ -719,6 +778,13 @@ class CohortWarGame extends Forge2DGame {
         final Vector2 c = enemySoldiers[ej].body.body.position;
         if ((c - pos).length2 <= rD2) inD.add(k);
         if (_rivalContactInEnemyEngagementZone(ei, ej)) inA.add(k);
+      }
+      for (int aj = 0; aj < allySoldiers.length; aj++) {
+        if (!_allyAlive[aj]) continue;
+        final Vector2 ac = allySoldiers[aj].body.body.position;
+        if ((ac - pos).length2 <= rD2) {
+          inD.add('a-$aj');
+        }
       }
       _enemyAttackPlayerEntry[ei]
           .removeWhere((String k, double _) => !inA.contains(k));
@@ -862,6 +928,11 @@ class CohortWarGame extends Forge2DGame {
       if (enemySoldiers[ej].palette == es.palette) continue;
       final Vector2 c = enemySoldiers[ej].body.body.position;
       if ((c - pos).length2 <= rD2) inD.add('e-$ej');
+    }
+    for (int ai = 0; ai < allySoldiers.length; ai++) {
+      if (!_allyAlive[ai]) continue;
+      final Vector2 c = allySoldiers[ai].body.body.position;
+      if ((c - pos).length2 <= rD2) inD.add('a-$ai');
     }
     return _earliestKeyInSet(inD, _enemyDetectionPlayerEntry[enemyIndex]);
   }
@@ -1088,6 +1159,11 @@ class CohortWarGame extends Forge2DGame {
         _enemyKnockbackTimer[i] = (_enemyKnockbackTimer[i] - dt).clamp(0.0, double.infinity);
       }
     }
+    for (int i = 0; i < _allyKnockbackTimer.length; i++) {
+      if (_allyKnockbackTimer[i] > 0) {
+        _allyKnockbackTimer[i] = (_allyKnockbackTimer[i] - dt).clamp(0.0, double.infinity);
+      }
+    }
   }
 
   void _applyChaseForces() {
@@ -1126,6 +1202,51 @@ class CohortWarGame extends Forge2DGame {
         enemySoldiers[ei].body.body,
         _targetWorldPos(pd),
       );
+    }
+
+    for (int ai = 0; ai < allySoldiers.length; ai++) {
+      if (!_allyAlive[ai]) continue;
+      if (_allyKnockbackTimer[ai] > 0) continue;
+      final String? target = _allyLockedEnemy[ai];
+      if (target == null) {
+        final Vector2 aPos = allySoldiers[ai].body.body.position;
+        final double rD = soldierDetectionRadiusWorld(allySoldiers[ai].soldier);
+        final double rD2 = rD * rD;
+        double bestD2 = double.infinity;
+        int? bestEi;
+        for (int ei = 0; ei < enemySoldiers.length; ei++) {
+          if (!_enemyAlive[ei]) continue;
+          final double d2 = (enemySoldiers[ei].body.body.position - aPos).length2;
+          if (d2 <= rD2 && d2 < bestD2) {
+            bestD2 = d2;
+            bestEi = ei;
+          }
+        }
+        if (bestEi != null) {
+          _applyChaseVelocityToward(
+            allySoldiers[ai].body.body,
+            enemySoldiers[bestEi].body.body.position,
+          );
+        }
+        continue;
+      }
+      final int ei = int.parse(target.substring(2));
+      if (ei < enemySoldiers.length && _enemyAlive[ei]) {
+        final CohortSoldier ally = allySoldiers[ai].soldier;
+        final Vector2 aPos = allySoldiers[ai].body.body.position;
+        if (ally.contact.hasEngagement) {
+          final double outerR = ally.contact.engagementOuterRadius!;
+          final double d = (enemySoldiers[ei].body.body.position - aPos).length;
+          if (d <= outerR) {
+            allySoldiers[ai].body.body.linearVelocity.setZero();
+            continue;
+          }
+        }
+        _applyChaseVelocityToward(
+          allySoldiers[ai].body.body,
+          enemySoldiers[ei].body.body.position,
+        );
+      }
     }
   }
 
@@ -1213,10 +1334,19 @@ class CohortWarGame extends Forge2DGame {
     }
   }
 
+  SoldierDesign _randomSpawnDesign() {
+    if (_spawnRng.nextDouble() < 0.9) {
+      // 90% common: #4 Mild Square, #5 Smug Triangle, #6 Jolly Circle
+      return kProductionSoldierDesignCatalog[3 + _spawnRng.nextInt(3)];
+    }
+    // 10% epic: #1 Helm Tower, #2 Starry Hex
+    return kProductionSoldierDesignCatalog[_spawnRng.nextInt(2)];
+  }
+
   void _addOneEnemy(Vector2 worldPos) {
     final SoldierDesignPalette enemyPalette =
         _enemyPalettes[_spawnRng.nextInt(_enemyPalettes.length)];
-    final SoldierDesign enemyDesign = kProductionSoldierDesignCatalog.first;
+    final SoldierDesign enemyDesign = _randomSpawnDesign();
     final SoldierModel enemyModel = SoldierModel(
       side: 40,
       paintSize: 56,
@@ -1248,6 +1378,85 @@ class CohortWarGame extends Forge2DGame {
     _enemyWasInAttackPhase.add(false);
     _enemyAlive.add(true);
     _enemyKnockbackTimer.add(0);
+  }
+
+  // ── Ally spawn config ────────────────────────────────────────────────
+  static const int _initialAllyCount = 8;
+  static const double _allyWaveIntervalSec = 2;
+  static const int _allyWaveSize = 3;
+  static const int _maxAliveAllies = 80;
+
+  double _nextAllyWaveTime = _allyWaveIntervalSec;
+
+  void _spawnAllySoldiers(Vector2 center) {
+    final math.Random rng = math.Random(42);
+    final double detectionR =
+        soldierDetectionRadiusWorld(playerCohort.soldier(0));
+    final double minDist = detectionR + 60;
+
+    for (int i = 0; i < _initialAllyCount; i++) {
+      final double angle = rng.nextDouble() * 2 * math.pi;
+      final double r =
+          minDist + rng.nextDouble() * (_spawnRingMax - minDist).clamp(0, 400);
+      final Vector2 worldPos =
+          center + Vector2(math.cos(angle) * r, math.sin(angle) * r);
+      _addOneAlly(worldPos);
+    }
+  }
+
+  int _aliveAllyCount() {
+    int c = 0;
+    for (int i = 0; i < _allyAlive.length; i++) {
+      if (_allyAlive[i]) c++;
+    }
+    return c;
+  }
+
+  void _spawnAllyWave() {
+    final Vector2 playerCenter = _leaderBody.position;
+    final int count = (_allyWaveSize).clamp(1, 10);
+    for (int i = 0; i < count; i++) {
+      if (_aliveAllyCount() >= _maxAliveAllies) return;
+      final double angle = _spawnRng.nextDouble() * 2 * math.pi;
+      final double r =
+          _spawnRingMin + _spawnRng.nextDouble() * (_spawnRingMax - _spawnRingMin);
+      final Vector2 worldPos =
+          playerCenter + Vector2(math.cos(angle) * r, math.sin(angle) * r);
+      _addOneAlly(worldPos);
+    }
+  }
+
+  void _addOneAlly(Vector2 worldPos) {
+    final SoldierDesign allyDesign = _randomSpawnDesign();
+    final SoldierModel allyModel = SoldierModel(
+      side: 40,
+      paintSize: 56,
+      isEnemy: false,
+      design: allyDesign,
+      displayPalette: playerPalette,
+    );
+    final SoldierContact allyContact =
+        SoldierContact.fromDesign(allyDesign, allyModel.paintSize);
+    final CohortSoldier s = CohortSoldier(
+      model: allyModel,
+      canonicalSlot: Vector2.zero(),
+      localOffset: Vector2.zero(),
+      contact: allyContact,
+    );
+    final SoldierContactBody body = _bodyFromContact(allyContact, worldPos);
+    allySoldiers.add(EnemySoldier(soldier: s, body: body, palette: playerPalette));
+    world.add(body);
+
+    _lastAllySoldierFacing.add(0);
+    final int aHp = s.model.design?.maxHp ?? kGildedBastionMaxHp;
+    _allyHp.add(aHp);
+    _allyMaxHp.add(aHp);
+    _allyAttackCycleT.add(0);
+    _allyLockedEnemy.add(null);
+    _allyDamagedThisPhase.add(<String>{});
+    _allyWasInAttackPhase.add(false);
+    _allyAlive.add(true);
+    _allyKnockbackTimer.add(0);
   }
 
   void _steer() {
@@ -1374,6 +1583,11 @@ class CohortWarGame extends Forge2DGame {
       _nextWaveTime = _warTime + _waveIntervalSec;
     }
 
+    if (_warTime >= _nextAllyWaveTime && _aliveAllyCount() < _maxAliveAllies) {
+      _spawnAllyWave();
+      _nextAllyWaveTime = _warTime + _allyWaveIntervalSec;
+    }
+
     final Vector2 v = _leaderBody.linearVelocity;
     velocityHud.value = Vector2(v.x, v.y);
 
@@ -1434,8 +1648,12 @@ class CohortWarGame extends Forge2DGame {
     return null;
   }
 
+  double _soldierCycleSeconds(SoldierDesign? d) {
+    if (d == null) return kAttackCycleSeconds;
+    return 1.0 / d.attack.displayAttacksPerSecond;
+  }
+
   void _updateCombat(double dt) {
-    final double dtNorm = dt / kAttackCycleSeconds;
     final bool neutral = !_playerCohortMoving();
 
     // --- Player soldiers ---
@@ -1472,10 +1690,11 @@ class CohortWarGame extends Forge2DGame {
         continue;
       }
 
+      final double pDtNorm = dt / _soldierCycleSeconds(playerCohort.soldier(i).model.design);
       final bool engaged = _enemyContactInPlayerEngagementZone(i, locked);
       if (!engaged) {
         if (_playerAttackCycleT[i] > 0 && _isAttackPhase(_playerAttackCycleT[i])) {
-          _playerAttackCycleT[i] = (_playerAttackCycleT[i] + dtNorm) % 1.0;
+          _playerAttackCycleT[i] = (_playerAttackCycleT[i] + pDtNorm) % 1.0;
         } else {
           _playerAttackCycleT[i] = 0;
           _playerDamagedThisPhase[i].clear();
@@ -1484,7 +1703,7 @@ class CohortWarGame extends Forge2DGame {
         continue;
       }
 
-      _playerAttackCycleT[i] = (_playerAttackCycleT[i] + dtNorm) % 1.0;
+      _playerAttackCycleT[i] = (_playerAttackCycleT[i] + pDtNorm) % 1.0;
       final bool inAttack = _isAttackPhase(_playerAttackCycleT[i]);
 
       if (!_playerWasInAttackPhase[i] && inAttack) {
@@ -1542,11 +1761,17 @@ class CohortWarGame extends Forge2DGame {
       }
       final String locked = _enemyLockedPlayer[ei]!;
 
-      final bool targetAlive = locked.startsWith('p-')
-          ? (int.parse(locked.substring(2)) < playerCohort.soldierCount &&
-              _playerAlive[int.parse(locked.substring(2))])
-          : (int.parse(locked.substring(2)) < enemySoldiers.length &&
-              _enemyAlive[int.parse(locked.substring(2))]);
+      final bool targetAlive;
+      if (locked.startsWith('p-')) {
+        final int pj = int.parse(locked.substring(2));
+        targetAlive = pj < playerCohort.soldierCount && _playerAlive[pj];
+      } else if (locked.startsWith('a-')) {
+        final int aj = int.parse(locked.substring(2));
+        targetAlive = aj < allySoldiers.length && _allyAlive[aj];
+      } else {
+        final int ej = int.parse(locked.substring(2));
+        targetAlive = ej < enemySoldiers.length && _enemyAlive[ej];
+      }
       if (!targetAlive) {
         _enemyLockedPlayer[ei] = detected != locked ? detected : null;
         _enemyAttackCycleT[ei] = 0;
@@ -1555,13 +1780,43 @@ class CohortWarGame extends Forge2DGame {
         continue;
       }
 
-      final bool engaged = locked.startsWith('p-')
-          ? _playerContactInEnemyEngagementZone(ei, locked)
-          : _rivalContactInEnemyEngagementZone(
-              ei, int.parse(locked.substring(2)));
+      final bool engaged;
+      if (locked.startsWith('p-')) {
+        engaged = _playerContactInEnemyEngagementZone(ei, locked);
+      } else if (locked.startsWith('a-')) {
+        final int aj = int.parse(locked.substring(2));
+        if (aj >= allySoldiers.length || !_allyAlive[aj]) {
+          _enemyLockedPlayer[ei] = null;
+          _enemyAttackCycleT[ei] = 0;
+          _enemyDamagedThisPhase[ei].clear();
+          _enemyWasInAttackPhase[ei] = false;
+          continue;
+        }
+        final CohortSoldier attacker = enemySoldiers[ei].soldier;
+        final Vector2 aPos = enemySoldiers[ei].body.body.position;
+        if (!attacker.contact.hasEngagement) {
+          engaged = false;
+        } else {
+          final CohortSoldier target = allySoldiers[aj].soldier;
+          final Vector2 tPos = allySoldiers[aj].body.body.position;
+          final double tAngle = _lastAllySoldierFacing[aj];
+          engaged = contactOverlapsEngagementAnnulus(
+            contact: target.contact,
+            contactBodyPos: tPos,
+            contactAngle: tAngle,
+            engCenter: aPos,
+            innerR: attacker.contact.engagementInnerRadius!,
+            outerR: attacker.contact.engagementOuterRadius!,
+          );
+        }
+      } else {
+        engaged = _rivalContactInEnemyEngagementZone(
+            ei, int.parse(locked.substring(2)));
+      }
+      final double eDtNorm = dt / _soldierCycleSeconds(enemySoldiers[ei].soldier.model.design);
       if (!engaged) {
         if (_enemyAttackCycleT[ei] > 0 && _isAttackPhase(_enemyAttackCycleT[ei])) {
-          _enemyAttackCycleT[ei] = (_enemyAttackCycleT[ei] + dtNorm) % 1.0;
+          _enemyAttackCycleT[ei] = (_enemyAttackCycleT[ei] + eDtNorm) % 1.0;
         } else {
           _enemyAttackCycleT[ei] = 0;
           _enemyDamagedThisPhase[ei].clear();
@@ -1570,7 +1825,7 @@ class CohortWarGame extends Forge2DGame {
         continue;
       }
 
-      _enemyAttackCycleT[ei] = (_enemyAttackCycleT[ei] + dtNorm) % 1.0;
+      _enemyAttackCycleT[ei] = (_enemyAttackCycleT[ei] + eDtNorm) % 1.0;
       final bool inAttack = _isAttackPhase(_enemyAttackCycleT[ei]);
 
       if (!_enemyWasInAttackPhase[ei] && inAttack) {
@@ -1622,6 +1877,146 @@ class CohortWarGame extends Forge2DGame {
             if (_enemyHp[ej] <= 0) _killEnemy(ej);
           }
         }
+        for (int aj = 0; aj < allySoldiers.length; aj++) {
+          if (!_allyAlive[aj]) continue;
+          final String ak = 'a-$aj';
+          if (_enemyDamagedThisPhase[ei].contains(ak)) continue;
+          final CohortSoldier allyS = allySoldiers[aj].soldier;
+          final Vector2 aPos2 = allySoldiers[aj].body.body.position;
+          final double aAngle = _lastAllySoldierFacing[aj];
+          final CohortSoldier eS = enemySoldiers[ei].soldier;
+          final Vector2 ePos2 = enemySoldiers[ei].body.body.position;
+          final double eAngle2 = _lastEnemySoldierFacing[ei];
+          final double? aCycleT2 =
+              _enemyLockedPlayer[ei] != null ? _enemyAttackCycleT[ei] : null;
+          final ({Vector2 center, double radius}) az =
+              attackZoneWorldCircle(eS, ePos2, eAngle2, aCycleT2);
+          if (contactOverlapsAttackCircle(
+            contact: allyS.contact,
+            contactBodyPos: aPos2,
+            contactAngle: aAngle,
+            attackCenter: az.center,
+            attackRadius: az.radius,
+          )) {
+            _enemyDamagedThisPhase[ei].add(ak);
+            _allyHp[aj] = (_allyHp[aj] - eAtkDmg).clamp(0, _allyMaxHp[aj]);
+            final Vector2 damagedCenter = aPos2.clone();
+            final Vector2 dir = damagedCenter - attackerPos;
+            if (dir.length2 > 0.01) {
+              allySoldiers[aj].body.body.linearVelocity.setFrom(
+                dir.normalized() * eAtkKb,
+              );
+              _allyKnockbackTimer[aj] = kKnockbackCooldown;
+            }
+            _spawnDamageText(damagedCenter, eAtkDmg, attackerPal);
+            if (_allyHp[aj] <= 0) _killAlly(aj);
+          }
+        }
+      }
+    }
+
+    // --- Ally soldiers (target = enemies) ---
+    for (int ai = 0; ai < allySoldiers.length; ai++) {
+      if (!_allyAlive[ai]) continue;
+      final CohortSoldier ally = allySoldiers[ai].soldier;
+      final Vector2 aPos = allySoldiers[ai].body.body.position;
+      final double rD = soldierDetectionRadiusWorld(ally);
+      final double rD2 = rD * rD;
+
+      double bestD2 = double.infinity;
+      int? bestEi;
+      for (int ei = 0; ei < enemySoldiers.length; ei++) {
+        if (!_enemyAlive[ei]) continue;
+        final double d2 = (enemySoldiers[ei].body.body.position - aPos).length2;
+        if (d2 <= rD2 && d2 < bestD2) {
+          bestD2 = d2;
+          bestEi = ei;
+        }
+      }
+
+      final String? lockTarget = bestEi != null ? 'e-$bestEi' : null;
+      if (lockTarget == null) {
+        _allyLockedEnemy[ai] = null;
+        _allyAttackCycleT[ai] = 0;
+        _allyDamagedThisPhase[ai].clear();
+        _allyWasInAttackPhase[ai] = false;
+        continue;
+      }
+      if (_allyLockedEnemy[ai] != lockTarget) {
+        _allyLockedEnemy[ai] = lockTarget;
+        _allyAttackCycleT[ai] = 0;
+        _allyDamagedThisPhase[ai].clear();
+        _allyWasInAttackPhase[ai] = false;
+      }
+
+      final int ei = bestEi!;
+      if (!_enemyAlive[ei]) {
+        _allyLockedEnemy[ai] = null;
+        _allyAttackCycleT[ai] = 0;
+        _allyDamagedThisPhase[ai].clear();
+        _allyWasInAttackPhase[ai] = false;
+        continue;
+      }
+
+      bool engaged = false;
+      if (ally.contact.hasEngagement) {
+        final double innerR = ally.contact.engagementInnerRadius!;
+        final double outerR = ally.contact.engagementOuterRadius!;
+        final CohortSoldier es = enemySoldiers[ei].soldier;
+        final Vector2 ePos = enemySoldiers[ei].body.body.position;
+        final double eAngle = _lastEnemySoldierFacing[ei];
+        engaged = contactOverlapsEngagementAnnulus(
+          contact: es.contact,
+          contactBodyPos: ePos,
+          contactAngle: eAngle,
+          engCenter: aPos,
+          innerR: innerR,
+          outerR: outerR,
+        );
+      }
+
+      if (!engaged) {
+        if (_allyAttackCycleT[ai] > 0 && _isAttackPhase(_allyAttackCycleT[ai])) {
+          final double aDtNorm = dt / _soldierCycleSeconds(ally.model.design);
+          _allyAttackCycleT[ai] = (_allyAttackCycleT[ai] + aDtNorm) % 1.0;
+        } else {
+          _allyAttackCycleT[ai] = 0;
+          _allyDamagedThisPhase[ai].clear();
+          _allyWasInAttackPhase[ai] = false;
+        }
+        continue;
+      }
+
+      final double aDtNorm = dt / _soldierCycleSeconds(ally.model.design);
+      _allyAttackCycleT[ai] = (_allyAttackCycleT[ai] + aDtNorm) % 1.0;
+      final bool inAttack = _isAttackPhase(_allyAttackCycleT[ai]);
+
+      if (!_allyWasInAttackPhase[ai] && inAttack) {
+        _allyDamagedThisPhase[ai].clear();
+      }
+      _allyWasInAttackPhase[ai] = inAttack;
+
+      if (inAttack) {
+        final Vector2 attackerPos = aPos;
+        final SoldierDesignPalette attackerPal = allySoldiers[ai].palette;
+        final SoldierDesign? aAtkDesign = ally.model.design;
+        final int aAtkDmg = aAtkDesign?.attackDamage ?? kGildedBastionAttackDmg;
+        final double aAtkKb = aAtkDesign?.knockbackSpeed ?? kKnockbackSpeed;
+        final String ek = 'e-$ei';
+        if (!_allyDamagedThisPhase[ai].contains(ek)) {
+          _allyDamagedThisPhase[ai].add(ek);
+          _enemyHp[ei] = (_enemyHp[ei] - aAtkDmg).clamp(0, _enemyMaxHp[ei]);
+          final Vector2 damagedCenter = enemySoldiers[ei].body.body.position.clone();
+          final Vector2 dir = damagedCenter - attackerPos;
+          if (dir.length2 > 0.01) {
+            enemySoldiers[ei].body.body.linearVelocity.setFrom(
+              dir.normalized() * aAtkKb,
+            );
+            _enemyKnockbackTimer[ei] = kKnockbackCooldown;
+          }
+          _spawnDamageText(damagedCenter, aAtkDmg, attackerPal);
+          if (_enemyHp[ei] <= 0) _killEnemy(ei);
+        }
       }
     }
   }
@@ -1651,6 +2046,35 @@ class CohortWarGame extends Forge2DGame {
         _enemyAttackCycleT[ej] = 0;
         _enemyDamagedThisPhase[ej].clear();
         _enemyWasInAttackPhase[ej] = false;
+      }
+    }
+    for (int ai = 0; ai < allySoldiers.length; ai++) {
+      if (_allyLockedEnemy[ai] == 'e-$ei') {
+        _allyLockedEnemy[ai] = null;
+        _allyAttackCycleT[ai] = 0;
+        _allyDamagedThisPhase[ai].clear();
+        _allyWasInAttackPhase[ai] = false;
+      }
+    }
+  }
+
+  void _killAlly(int ai) {
+    _allyAlive[ai] = false;
+    final CohortSoldier s = allySoldiers[ai].soldier;
+    final Vector2 pos = allySoldiers[ai].body.body.position;
+    world.remove(allySoldiers[ai].body);
+    world.add(_DeathRemnant(
+      worldPos: pos.clone(),
+      model: s.model,
+    ));
+    _allyLockedEnemy[ai] = null;
+    _allyAttackCycleT[ai] = 0;
+    for (int ei = 0; ei < enemySoldiers.length; ei++) {
+      if (_enemyLockedPlayer[ei] == 'a-$ai') {
+        _enemyLockedPlayer[ei] = null;
+        _enemyAttackCycleT[ei] = 0;
+        _enemyDamagedThisPhase[ei].clear();
+        _enemyWasInAttackPhase[ei] = false;
       }
     }
   }

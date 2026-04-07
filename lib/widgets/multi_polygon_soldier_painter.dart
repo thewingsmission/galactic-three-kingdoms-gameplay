@@ -30,6 +30,9 @@ class MultiPolygonSoldierPainter extends CustomPainter {
   /// Global multiplier on all outline / polyline stroke pixels (half thickness vs legacy).
   static const double kOutlineThicknessMul = 0.5;
 
+  /// Punch distance in model units for [CrownVfxMode.punchBurst].
+  static const double kPunchDistance = 50.0;
+
   /// Cycle phase where [attackProbeEnvelope] is at full extension — use for layout / bbox so the
   /// attack strip does not clip during the probe hold.
   static const double kAttackProbeBoundsPhase = 0.05;
@@ -763,6 +766,27 @@ class MultiPolygonSoldierPainter extends CustomPainter {
       strokeX.add(_transformVerts(p, p.strokePolyline, motionT, attackCycleT));
     }
 
+    // Punch: translate all attack-role parts along −Y during the attack cycle.
+    if (crownVfxMode == CrownVfxMode.punchBurst && attackCycleT != null) {
+      final double punchEnv = attackProbeEnvelope(attackCycleT!);
+      final double punchDy = -kPunchDistance * punchEnv;
+      if (punchDy.abs() > 1e-6) {
+        for (int i = 0; i < parts.length; i++) {
+          if (parts[i].stackRole != SoldierPartStackRole.attack) continue;
+          if (fillX[i] != null) {
+            fillX[i] = fillX[i]!
+                .map((Offset v) => Offset(v.dx, v.dy + punchDy))
+                .toList();
+          }
+          if (strokeX[i] != null) {
+            strokeX[i] = strokeX[i]!
+                .map((Offset v) => Offset(v.dx, v.dy + punchDy))
+                .toList();
+          }
+        }
+      }
+    }
+
     final List<Offset> all = <Offset>[];
     for (int i = 0; i < parts.length; i++) {
       _collectBounds(fillX[i], all.add);
@@ -945,6 +969,7 @@ class MultiPolygonSoldierPainter extends CustomPainter {
                 scale, displayPalette,
                 sizeMul: 1.8,
               );
+            case CrownVfxMode.punchBurst:
             case CrownVfxMode.none:
               break;
           }
@@ -1001,7 +1026,95 @@ class MultiPolygonSoldierPainter extends CustomPainter {
       }
     }
 
+    // Punch burst VFX: polygon particles spray 360° from body centroid at peak.
+    if (crownVfxMode == CrownVfxMode.punchBurst && attackCycleT != null) {
+      final double punchEnv = attackProbeEnvelope(attackCycleT!);
+      if (punchEnv > 0.01) {
+        // Find first attack-role filled polygon as the body template.
+        for (int i = 0; i < parts.length; i++) {
+          if (parts[i].stackRole != SoldierPartStackRole.attack) continue;
+          final List<Offset>? fv = fillX[i];
+          if (fv == null || fv.length < 3) continue;
+          final Offset bodyCen = map(_sCentroid(fv));
+          final int vertexCount = fv.length;
+          _paintPunchBurstParticles(
+            canvas, bodyCen, vertexCount, punchEnv, motionT,
+            scale, displayPalette,
+          );
+          break;
+        }
+      }
+    }
+
     paintPartsForRole(SoldierPartStackRole.overlay);
+  }
+
+  /// Polygon particles spraying 360° from [center] at punch peak.
+  /// [bodyVertexCount] determines particle shape (4=square, 3=triangle, ≥8=circle).
+  static void _paintPunchBurstParticles(
+    Canvas canvas,
+    Offset center,
+    int bodyVertexCount,
+    double envelope,
+    double motionT,
+    double pixelScale,
+    SoldierDesignPalette palette,
+  ) {
+    final double e = envelope.clamp(0.0, 1.0);
+    if (e < 0.01) return;
+
+    final ({Color bright, Color mid, Color deep}) fc = palette.crownFlameColors;
+    const int particleCount = 29;
+    const double speed = 2.2;
+    final double reachPx = pixelScale * 42;
+    final double outStroke = (pixelScale * 0.7).clamp(0.4, 2.5);
+    final double minR = pixelScale * 4.0;
+    final double maxR = pixelScale * 8.8;
+
+    for (int i = 0; i < particleCount; i++) {
+      final int seed = i * 131 + 47;
+      final double r0 = ((seed * 7919) & 0xFFFF) / 65536.0;
+      final double r1 = ((seed * 6151 + 3571) & 0xFFFF) / 65536.0;
+      final double r2 = ((seed * 4337 + 8923) & 0xFFFF) / 65536.0;
+      final double r3 = ((seed * 2749 + 5147) & 0xFFFF) / 65536.0;
+
+      final double phase = (motionT * speed + r0) % 1.0;
+      final double lifeFade = phase < 0.75 ? 1.0 : (1.0 - (phase - 0.75) / 0.25);
+      final double alpha = e * lifeFade;
+      if (alpha < 0.03) continue;
+
+      final double angle = r1 * math.pi * 2;
+      final double dist = phase * reachPx * (0.7 + 0.6 * r2);
+      final Offset pos = Offset(
+        center.dx + math.cos(angle) * dist,
+        center.dy + math.sin(angle) * dist,
+      );
+      final double pSize = minR + (maxR - minR) * r3;
+      final double rot = motionT * 4.0 + r0 * math.pi * 2;
+      final Color col = Color.lerp(fc.bright, fc.mid, r2 * 0.7) ?? fc.bright;
+
+      // Build particle polygon matching body shape.
+      final int n = bodyVertexCount <= 4 ? bodyVertexCount : 8;
+      final List<Offset> polyPts = List<Offset>.generate(n, (int k) {
+        final double a = rot + k * 2 * math.pi / n;
+        return Offset(pos.dx + pSize * math.cos(a), pos.dy + pSize * math.sin(a));
+      });
+      final Path pp = _pathFromOffsets(polyPts);
+      canvas.drawPath(
+        pp,
+        Paint()
+          ..color = col.withValues(alpha: alpha)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawPath(
+        pp,
+        Paint()
+          ..color = const Color(0xFF000000).withValues(alpha: alpha * 0.85)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = outStroke
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
   }
 
   @override

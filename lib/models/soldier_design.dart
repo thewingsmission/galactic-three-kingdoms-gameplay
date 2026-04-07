@@ -144,6 +144,9 @@ enum CrownVfxMode {
   bombardment,
   /// Crown triangle scales up to 3x as it extends from rest position.
   scalingCrown,
+  /// Whole-body punch (−Y): all attack parts translate upward, then particles
+  /// burst outward 360° at max extension. Particle shape = body polygon.
+  punchBurst,
 }
 
 /// Unit design. [rarity] optional: if set, defines tier; else inferred from part count (legacy curve).

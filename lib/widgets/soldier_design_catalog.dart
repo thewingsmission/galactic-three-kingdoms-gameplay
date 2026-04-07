@@ -2135,6 +2135,7 @@ final SoldierDesign _kProductionBoxGrin = SoldierDesign(
   id: 'mild_square_prod',
   name: 'Mild Square',
   rarity: SoldierRarity.common,
+  crownVfxMode: CrownVfxMode.punchBurst,
   parts: <SoldierShapePart>[
     ..._scalePartsToWidth(_boxGrinProdParts(), 60),
     SoldierShapePart(
@@ -2154,12 +2155,22 @@ final SoldierDesign _kProductionBoxGrin = SoldierDesign(
       stackRole: SoldierPartStackRole.target,
     ),
     SoldierShapePart(
-      fillVertices: _engagementAnnulusVerts(50, 110),
+      fillVertices: _engagementAnnulusVerts(35, 70.4),
       fillTier: 1, transparentFill: true, strokeWidth: 0,
       stackRole: SoldierPartStackRole.engagement,
     ),
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(-33, -33), Offset(33, -33),
+        Offset(33, 33), Offset(-33, 33),
+      ],
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.hitZone,
+    ),
   ],
-  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
+  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'Punch', nominalAttacksPerSecond: 0.4286),
+  maxHp: 30,
+  attackDamage: 1,
 );
 
 /// Tri Fury production — triangle body with vertical ellipse eyes + brow lines + arrogant smirk.
@@ -2213,6 +2224,7 @@ final SoldierDesign _kProductionTriFury = SoldierDesign(
   id: 'smug_triangle_prod',
   name: 'Smug Triangle',
   rarity: SoldierRarity.common,
+  crownVfxMode: CrownVfxMode.punchBurst,
   parts: <SoldierShapePart>[
     ..._scalePartsToWidth(_triFuryProdParts(), 60),
     SoldierShapePart(
@@ -2230,12 +2242,21 @@ final SoldierDesign _kProductionTriFury = SoldierDesign(
       stackRole: SoldierPartStackRole.target,
     ),
     SoldierShapePart(
-      fillVertices: _engagementAnnulusVerts(50, 110),
+      fillVertices: _engagementAnnulusVerts(35, 70.4),
       fillTier: 1, transparentFill: true, strokeWidth: 0,
       stackRole: SoldierPartStackRole.engagement,
     ),
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(0, -38.105), Offset(33, 19.053), Offset(-33, 19.053),
+      ],
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.hitZone,
+    ),
   ],
-  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
+  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'Punch', nominalAttacksPerSecond: 0.4286),
+  maxHp: 30,
+  attackDamage: 1,
 );
 
 /// Orb Joy production — circle body with arc eyes + open mouth.
@@ -2293,27 +2314,33 @@ final SoldierDesign _kProductionOrbJoy = SoldierDesign(
   id: 'jolly_circle_prod',
   name: 'Jolly Circle',
   rarity: SoldierRarity.common,
+  crownVfxMode: CrownVfxMode.punchBurst,
   parts: <SoldierShapePart>[
     ..._scalePartsToWidth(_orbJoyProdParts(), 60),
-    // Contact zone: circle body × 0.85 → r = 25.5
     SoldierShapePart(
-      fillVertices: _circleVerts(25.5, 20),
+      fillVertices: _circleVerts(25.5, 8),
       fillTier: 1, transparentFill: true, strokeWidth: 0,
       stackRole: SoldierPartStackRole.contact,
     ),
-    // Target zone: contact × 1.45 → r = 36.975
     SoldierShapePart(
-      fillVertices: _circleVerts(36.975, 20),
+      fillVertices: _circleVerts(36.975, 8),
       fillTier: 1, transparentFill: true, strokeWidth: 0,
       stackRole: SoldierPartStackRole.target,
     ),
     SoldierShapePart(
-      fillVertices: _engagementAnnulusVerts(50, 110),
+      fillVertices: _engagementAnnulusVerts(35, 70.4),
       fillTier: 1, transparentFill: true, strokeWidth: 0,
       stackRole: SoldierPartStackRole.engagement,
     ),
+    SoldierShapePart(
+      fillVertices: _circleVerts(33, 8),
+      fillTier: 1, transparentFill: true, strokeWidth: 0,
+      stackRole: SoldierPartStackRole.hitZone,
+    ),
   ],
-  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
+  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'Punch', nominalAttacksPerSecond: 0.4286),
+  maxHp: 30,
+  attackDamage: 1,
 );
 
 /// Production tab / war roster.
