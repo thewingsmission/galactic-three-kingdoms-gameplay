@@ -1358,8 +1358,8 @@ class CohortWarGame extends Forge2DGame {
         _enemyPalettes[_spawnRng.nextInt(_enemyPalettes.length)];
     final SoldierDesign enemyDesign = _randomSpawnDesign();
     final SoldierModel enemyModel = SoldierModel(
-      side: 40,
-      paintSize: 56,
+      side: enemyDesign.side,
+      paintSize: enemyDesign.paintSize,
       isEnemy: true,
       design: enemyDesign,
       displayPalette: enemyPalette,
@@ -1439,8 +1439,8 @@ class CohortWarGame extends Forge2DGame {
   void _addOneAlly(Vector2 worldPos) {
     final SoldierDesign allyDesign = _randomSpawnDesign();
     final SoldierModel allyModel = SoldierModel(
-      side: 40,
-      paintSize: 56,
+      side: allyDesign.side,
+      paintSize: allyDesign.paintSize,
       isEnemy: false,
       design: allyDesign,
       displayPalette: playerPalette,
@@ -2732,7 +2732,7 @@ class PlayerFormationPainter extends Component {
         MultiPolygonSoldierPainter(
           parts: parts,
           displayPalette: m.displayPalette!,
-          strokeWidth: 2.25,
+          strokeWidth: m.design!.strokeWidth,
           motionT: _motionT,
           attackCycleT: aCycleT,
           uniformWorldScale: fit,
@@ -2813,7 +2813,7 @@ class EnemySoldiersPainter extends Component {
         MultiPolygonSoldierPainter(
           parts: parts,
           displayPalette: m.displayPalette!,
-          strokeWidth: 2.25,
+          strokeWidth: m.design!.strokeWidth,
           motionT: _motionT,
           attackCycleT: aCycleT,
           uniformWorldScale: fit,

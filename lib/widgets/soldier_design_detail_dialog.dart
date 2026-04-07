@@ -307,7 +307,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                                         painter: MultiPolygonSoldierPainter(
                                           parts: _parts,
                                           displayPalette: _palette,
-                                          strokeWidth: 2.25,
+                                          strokeWidth: widget.design.strokeWidth,
                                           motionT: _continuousMotionT,
                                           uniformWorldScale: sigma,
                                           fixedModelAnchor: idleAnchor,
@@ -321,7 +321,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                                     painter: MultiPolygonSoldierPainter(
                                       parts: _parts,
                                       displayPalette: _palette,
-                                      strokeWidth: 2.25,
+                                      strokeWidth: widget.design.strokeWidth,
                                       motionT: 0,
                                       uniformWorldScale: sigma,
                                       fixedModelAnchor: idleAnchor,
@@ -349,7 +349,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                             design: widget.design,
                             palette: _palette,
                             motionT: _continuousMotionT,
-                            strokeWidth: 2.25,
+                            strokeWidth: widget.design.strokeWidth,
                             uniformIdleDesigns: kSoldierDesignCatalog,
                           );
                         },
@@ -414,7 +414,7 @@ class _SoldierDesignDetailDialogBodyState extends State<_SoldierDesignDetailDial
                                   painter: MultiPolygonSoldierPainter(
                                     parts: _parts,
                                     displayPalette: _palette,
-                                    strokeWidth: 2.25,
+                                    strokeWidth: widget.design.strokeWidth,
                                     motionT: motionT,
                                     attackCycleT: attackT,
                                     uniformWorldScale: sigma,

@@ -24,9 +24,6 @@ class _InventoryScreenState extends State<InventoryScreen>
   static const int _inventorySize = 44;
   static const int _maxCohortSize = 10;
 
-  /// Matches compact [SoldierInventoryTile] preview for cohort stack hit area.
-  static const double _kFormationSoldierPx = 60;
-  static const double _kFormationSoldierHalf = _kFormationSoldierPx / 2;
 
   /// Drag within this distance of the crosshair snaps to exact center (0, 0).
   static const double _centerSnapPx = 21;
@@ -74,10 +71,11 @@ class _InventoryScreenState extends State<InventoryScreen>
   @override
   void initState() {
     super.initState();
-    _soldierContact = SoldierContact.fromDesign(_kRoster.first, _kFormationSoldierPx);
+    _soldierContact = SoldierContact.fromDesign(
+      _kRoster.first, _kRoster.first.paintSize);
     _soldierContacts = <SoldierContact>[
       for (final SoldierDesign d in _kRoster)
-        SoldierContact.fromDesign(d, _kFormationSoldierPx),
+        SoldierContact.fromDesign(d, d.paintSize),
     ];
     _idleMotionCtrl = AnimationController(
       vsync: this,
@@ -606,20 +604,24 @@ class _InventoryScreenState extends State<InventoryScreen>
     });
     return <Widget>[
       for (final int i in indices)
-        Positioned(
-          left: origin.dx + (_offsets[i] ?? Offset.zero).dx - _kFormationSoldierHalf,
-          top: origin.dy + (_offsets[i] ?? Offset.zero).dy - _kFormationSoldierHalf,
-          child: IgnorePointer(
-            child: CustomPaint(
-              size: const Size(_kFormationSoldierPx, _kFormationSoldierPx),
-              painter: RosterMiniSoldierPainter(
-                design: _kRoster[i],
-                palette: _palette,
-                motionT: motionT,
+        () {
+          final double px = _kRoster[i].paintSize;
+          final double half = px / 2;
+          return Positioned(
+            left: origin.dx + (_offsets[i] ?? Offset.zero).dx - half,
+            top: origin.dy + (_offsets[i] ?? Offset.zero).dy - half,
+            child: IgnorePointer(
+              child: CustomPaint(
+                size: Size(px, px),
+                painter: RosterMiniSoldierPainter(
+                  design: _kRoster[i],
+                  palette: _palette,
+                  motionT: motionT,
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        }(),
     ];
   }
 }

@@ -163,6 +163,9 @@ class SoldierDesign {
     this.maxHp = 100,
     this.attackDamage = 20,
     this.knockbackSpeed = 350.0,
+    this.paintSize = 56,
+    this.side = 40,
+    this.strokeWidth = 2.25,
   })  : _rarityOverride = rarity,
         crownVfxMode = crownVfxMode ??
             (paintCrownFlames ? CrownVfxMode.flames : CrownVfxMode.none),
@@ -179,6 +182,18 @@ class SoldierDesign {
   final int maxHp;
   final int attackDamage;
   final double knockbackSpeed;
+
+  /// Rendering canvas size in world/screen units (all scenes use this).
+  final double paintSize;
+
+  /// Triangle leg length for isosceles fallback geometry.
+  final double side;
+
+  /// Outline stroke width for [MultiPolygonSoldierPainter].
+  final double strokeWidth;
+
+  /// Derived scale relative to the standard 56-unit base.
+  double get displayScale => paintSize / 56.0;
 
   bool get paintCrownFlames => crownVfxMode != CrownVfxMode.none;
 

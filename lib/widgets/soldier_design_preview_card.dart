@@ -76,7 +76,7 @@ class _SoldierDesignPreviewCardState extends State<SoldierDesignPreviewCard>
                         design: widget.design,
                         palette: widget.palette,
                         motionT: _continuousMotionT,
-                        strokeWidth: 2.25,
+                        strokeWidth: widget.design.strokeWidth,
                         uniformIdleDesigns: kSoldierDesignCatalog,
                       );
                     },

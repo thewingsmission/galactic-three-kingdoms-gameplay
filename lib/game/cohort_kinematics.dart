@@ -52,8 +52,8 @@ class CohortRuntime {
       final Vector2 slot = Vector2(s.localOffset.dx, s.localOffset.dy);
       final SoldierModel model = SoldierModel(
         type: s.type,
-        side: 40,
-        paintSize: 56,
+        side: s.soldierDesign?.side ?? 40,
+        paintSize: s.soldierDesign?.paintSize ?? 56,
         isEnemy: false,
         design: s.soldierDesign,
         displayPalette: s.soldierDesign != null ? s.cohortPalette : null,

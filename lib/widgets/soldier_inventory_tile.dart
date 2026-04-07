@@ -193,7 +193,7 @@ class RosterMiniSoldierPainter extends CustomPainter {
     MultiPolygonSoldierPainter(
       parts: parts,
       displayPalette: palette,
-      strokeWidth: 2.25,
+      strokeWidth: design.strokeWidth,
       motionT: motionT,
       attackCycleT: null,
       uniformWorldScale: fit,

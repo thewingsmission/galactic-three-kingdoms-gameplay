@@ -2136,6 +2136,8 @@ final SoldierDesign _kProductionBoxGrin = SoldierDesign(
   name: 'Mild Square',
   rarity: SoldierRarity.common,
   crownVfxMode: CrownVfxMode.punchBurst,
+  paintSize: 33.6,
+  side: 24,
   parts: <SoldierShapePart>[
     ..._scalePartsToWidth(_boxGrinProdParts(), 36),
     SoldierShapePart(
@@ -2225,6 +2227,8 @@ final SoldierDesign _kProductionTriFury = SoldierDesign(
   name: 'Smug Triangle',
   rarity: SoldierRarity.common,
   crownVfxMode: CrownVfxMode.punchBurst,
+  paintSize: 33.6,
+  side: 24,
   parts: <SoldierShapePart>[
     ..._scalePartsToWidth(_triFuryProdParts(), 36),
     SoldierShapePart(
@@ -2315,6 +2319,8 @@ final SoldierDesign _kProductionOrbJoy = SoldierDesign(
   name: 'Jolly Circle',
   rarity: SoldierRarity.common,
   crownVfxMode: CrownVfxMode.punchBurst,
+  paintSize: 33.6,
+  side: 24,
   parts: <SoldierShapePart>[
     ..._scalePartsToWidth(_orbJoyProdParts(), 36),
     SoldierShapePart(
