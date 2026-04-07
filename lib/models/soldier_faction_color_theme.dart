@@ -50,11 +50,18 @@ Color factionTierColor(SoldierDesignPalette p, int tier) {
 
 extension SoldierShapePartFactionColors on SoldierShapePart {
   /// Fill from standard ramp for [p]; **stroke is always black** for all three themes.
+  /// Tier **0** → solid black, tier **6** → white.
   SoldierPartColorPair colorsForPalette(SoldierDesignPalette p) {
-    final List<Color> list = factionTierList(p);
-    return SoldierPartColorPair(
-      fill: transparentFill ? Colors.transparent : list[fillTier - 1],
-      stroke: Colors.black,
-    );
+    final Color fill;
+    if (transparentFill) {
+      fill = Colors.transparent;
+    } else if (fillTier == 0) {
+      fill = Colors.black;
+    } else if (fillTier == 6) {
+      fill = Colors.white;
+    } else {
+      fill = factionTierList(p)[fillTier - 1];
+    }
+    return SoldierPartColorPair(fill: fill, stroke: Colors.black);
   }
 }

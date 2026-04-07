@@ -1882,311 +1882,41 @@ List<SoldierDesign> _legacyPromotedAsLegendary() {
 final List<SoldierDesign> _kRadialLegendaryDrafts =
     List<SoldierDesign>.unmodifiable(_buildTenRadialLegendaryDrafts());
 
-/// Fifteen draft soldiers — 5 triangles, 5 squares, 5 circles — each with a
-/// unique facial expression (happy / angry / surprised / sleepy / cool).
-List<SoldierDesign> _buildFacialGeometricDrafts() {
-  // ── Face-feature vertex helpers ──
-
-  List<Offset> dotEye(double cx, double cy, [double r = 2.0]) => <Offset>[
-    Offset(cx, cy - r),
-    Offset(cx + r, cy),
-    Offset(cx, cy + r),
-    Offset(cx - r, cy),
-  ];
-
-  List<Offset> ovalEye(double cx, double cy,
-          [double rx = 3.0, double ry = 2.5]) =>
-      List<Offset>.generate(6, (int i) {
-        final double a = -math.pi / 2 + i * math.pi / 3;
-        return Offset(cx + rx * math.cos(a), cy + ry * math.sin(a));
-      });
-
-  List<Offset> oShape(double cx, double cy, [double r = 2.5]) =>
-      List<Offset>.generate(6, (int i) {
-        final double a = -math.pi / 2 + i * math.pi / 3;
+/// Box Grin production — square body with happy smiley face.
+List<SoldierShapePart> _boxGrinProdParts() {
+  List<Offset> roundEye(double cx, double cy, [double r = 3.5]) =>
+      List<Offset>.generate(14, (int i) {
+        final double a = i * 2 * math.pi / 14;
         return Offset(cx + r * math.cos(a), cy + r * math.sin(a));
       });
 
-  // ── Expression builders (ey = eye-center Y, my = mouth Y, t = fillTier) ──
-
-  List<SoldierShapePart> happy(double ey, double my, int t) =>
-      <SoldierShapePart>[
-        SoldierShapePart(
-            fillVertices: dotEye(-5, ey), fillTier: t, strokeWidth: 1.0),
-        SoldierShapePart(
-            fillVertices: dotEye(5, ey), fillTier: t, strokeWidth: 1.0),
-        SoldierShapePart(
-          strokePolyline: <Offset>[
-            Offset(-4, my),
-            Offset(-1, my + 3),
-            Offset(1, my + 3),
-            Offset(4, my),
-          ],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.4,
-        ),
-      ];
-
-  List<SoldierShapePart> angry(double ey, double my, int t) =>
-      <SoldierShapePart>[
-        SoldierShapePart(
-            fillVertices: dotEye(-5, ey, 1.8), fillTier: t, strokeWidth: 1.0),
-        SoldierShapePart(
-            fillVertices: dotEye(5, ey, 1.8), fillTier: t, strokeWidth: 1.0),
-        SoldierShapePart(
-          strokePolyline: <Offset>[Offset(-7, ey - 4), Offset(-3, ey - 2.5)],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.6,
-        ),
-        SoldierShapePart(
-          strokePolyline: <Offset>[Offset(3, ey - 2.5), Offset(7, ey - 4)],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.6,
-        ),
-        SoldierShapePart(
-          strokePolyline: <Offset>[
-            Offset(-4, my + 2),
-            Offset(0, my),
-            Offset(4, my + 2),
-          ],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.4,
-        ),
-      ];
-
-  List<SoldierShapePart> surprised(double ey, double my, int t) =>
-      <SoldierShapePart>[
-        SoldierShapePart(
-            fillVertices: ovalEye(-5, ey), fillTier: t, strokeWidth: 1.2),
-        SoldierShapePart(
-            fillVertices: ovalEye(5, ey), fillTier: t, strokeWidth: 1.2),
-        SoldierShapePart(
-            fillVertices: oShape(0, my + 1.5),
-            fillTier: t,
-            strokeWidth: 1.2),
-      ];
-
-  List<SoldierShapePart> sleepy(double ey, double my, int t) =>
-      <SoldierShapePart>[
-        SoldierShapePart(
-          strokePolyline: <Offset>[Offset(-7, ey), Offset(-3, ey)],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.8,
-        ),
-        SoldierShapePart(
-          strokePolyline: <Offset>[Offset(3, ey), Offset(7, ey)],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.8,
-        ),
-        SoldierShapePart(
-          strokePolyline: <Offset>[Offset(-3, my + 1), Offset(3, my + 1)],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.2,
-        ),
-      ];
-
-  List<SoldierShapePart> cool(double ey, double my, int t) =>
-      <SoldierShapePart>[
-        SoldierShapePart(
-          fillVertices: <Offset>[
-            Offset(-7, ey),
-            Offset(-5, ey - 1.2),
-            Offset(-3, ey),
-            Offset(-5, ey + 0.8),
-          ],
-          fillTier: t,
-          strokeWidth: 1.0,
-        ),
-        SoldierShapePart(
-          fillVertices: <Offset>[
-            Offset(3, ey),
-            Offset(5, ey - 1.2),
-            Offset(7, ey),
-            Offset(5, ey + 0.8),
-          ],
-          fillTier: t,
-          strokeWidth: 1.0,
-        ),
-        SoldierShapePart(
-          strokePolyline: <Offset>[
-            Offset(-3, my + 1),
-            Offset(1, my + 2),
-            Offset(5, my),
-          ],
-          fillTier: 1,
-          transparentFill: true,
-          strokeWidth: 1.4,
-        ),
-      ];
-
-  final List<List<SoldierShapePart> Function(double, double, int)> exprs =
-      <List<SoldierShapePart> Function(double, double, int)>[
-    happy,
-    angry,
-    surprised,
-    sleepy,
-    cool,
-  ];
-
-  // ── Body shapes ──
-
-  final double triH = 34 * math.sqrt(3) / 2;
-  final List<Offset> triBody = <Offset>[
-    Offset(0, -triH * 2 / 3),
-    Offset(17, triH / 3),
-    Offset(-17, triH / 3),
-  ];
-
-  const List<Offset> sqBody = <Offset>[
-    Offset(-15, -15),
-    Offset(15, -15),
-    Offset(15, 15),
-    Offset(-15, 15),
-  ];
-
-  final List<Offset> circBody = List<Offset>.generate(20, (int i) {
-    final double a = -math.pi / 2 + i * 2 * math.pi / 20;
-    return Offset(17 * math.cos(a), 17 * math.sin(a));
-  });
-
-  // ── Names & attack specs ──
-
-  const List<String> triNames = <String>[
-    'Delta Grin',
-    'Delta Fury',
-    'Delta Gasp',
-    'Delta Zen',
-    'Delta Smirk',
-  ];
-  const List<SoldierAttackMode> triAtk = <SoldierAttackMode>[
-    SoldierAttackMode.railNeedle,
-    SoldierAttackMode.twinRail,
-    SoldierAttackMode.triSpread,
-    SoldierAttackMode.pulseWave,
-    SoldierAttackMode.plasmaBolt,
-  ];
-  const List<String> triLbl = <String>[
-    'Rail needle',
-    'Twin rail',
-    'Tri spread',
-    'Pulse wave',
-    'Plasma bolt',
-  ];
-
-  const List<String> sqNames = <String>[
-    'Quad Joy',
-    'Quad Rage',
-    'Quad Shock',
-    'Quad Doze',
-    'Quad Wink',
-  ];
-  const List<SoldierAttackMode> sqAtk = <SoldierAttackMode>[
-    SoldierAttackMode.sustainedBeam,
-    SoldierAttackMode.burstShards,
-    SoldierAttackMode.sweepBeam,
-    SoldierAttackMode.helixBurst,
-    SoldierAttackMode.lanceCharge,
-  ];
-  const List<String> sqLbl = <String>[
-    'Sustained beam',
-    'Burst shards',
-    'Sweep beam',
-    'Helix burst',
-    'Lance charge',
-  ];
-
-  const List<String> circNames = <String>[
-    'Orb Bliss',
-    'Orb Wrath',
-    'Orb Awe',
-    'Orb Calm',
-    'Orb Sneer',
-  ];
-  const List<SoldierAttackMode> circAtk = <SoldierAttackMode>[
-    SoldierAttackMode.pelletStorm,
-    SoldierAttackMode.sineWaver,
-    SoldierAttackMode.overchargeCone,
-    SoldierAttackMode.needleSalvo,
-    SoldierAttackMode.swordSwipe,
-  ];
-  const List<String> circLbl = <String>[
-    'Pellet storm',
-    'Sine waver',
-    'Overcharge cone',
-    'Needle salvo',
-    'Sword swipe',
-  ];
-
-  // ── Assemble designs ──
-
-  final List<SoldierDesign> out = <SoldierDesign>[];
-
-  for (int i = 0; i < 5; i++) {
-    final int fTier = ((i + 2) % 5) + 1;
-    out.add(SoldierDesign(
-      id: 'draft_tri_${i + 1}',
-      name: triNames[i],
-      rarity: SoldierRarity.common,
-      parts: _centerParts(<SoldierShapePart>[
-        SoldierShapePart(
-          fillVertices: triBody,
-          fillTier: (i % 5) + 1,
-          strokeWidth: 2.2,
-          stackRole: SoldierPartStackRole.body,
-        ),
-        ...exprs[i](-4, 2, fTier),
-      ]),
-      attack: SoldierAttackSpec(mode: triAtk[i], label: triLbl[i]),
-    ));
+  List<Offset> smileArc(double cx, double my, double w, double drop, int segs) {
+    final List<Offset> pts = <Offset>[];
+    for (int i = 0; i <= segs; i++) {
+      final double t = i / segs;
+      pts.add(Offset(cx - w / 2 + w * t, my + drop * math.sin(math.pi * t)));
+    }
+    return pts;
   }
 
-  for (int i = 0; i < 5; i++) {
-    final int fTier = ((i + 2) % 5) + 1;
-    out.add(SoldierDesign(
-      id: 'draft_sq_${i + 1}',
-      name: sqNames[i],
-      rarity: SoldierRarity.common,
-      parts: _centerParts(<SoldierShapePart>[
-        SoldierShapePart(
-          fillVertices: sqBody,
-          fillTier: ((i + 1) % 5) + 1,
-          strokeWidth: 2.2,
-          stackRole: SoldierPartStackRole.body,
-        ),
-        ...exprs[i](-4, 3, fTier),
-      ]),
-      attack: SoldierAttackSpec(mode: sqAtk[i], label: sqLbl[i]),
-    ));
-  }
-
-  for (int i = 0; i < 5; i++) {
-    final int fTier = ((i + 2) % 5) + 1;
-    out.add(SoldierDesign(
-      id: 'draft_circ_${i + 1}',
-      name: circNames[i],
-      rarity: SoldierRarity.common,
-      parts: _centerParts(<SoldierShapePart>[
-        SoldierShapePart(
-          fillVertices: circBody,
-          fillTier: ((i + 2) % 5) + 1,
-          strokeWidth: 2.2,
-          stackRole: SoldierPartStackRole.body,
-        ),
-        ...exprs[i](-3, 3, fTier),
-      ]),
-      attack: SoldierAttackSpec(mode: circAtk[i], label: circLbl[i]),
-    ));
-  }
-
-  return out;
+  return _centerParts(<SoldierShapePart>[
+    SoldierShapePart(
+      fillVertices: const <Offset>[
+        Offset(-18, -18), Offset(18, -18), Offset(18, 18), Offset(-18, 18),
+      ],
+      fillTier: 2, strokeWidth: 2.2, stackRole: SoldierPartStackRole.body,
+    ),
+    SoldierShapePart(fillVertices: roundEye(-6.5, -4, 1.8375), fillTier: 0, strokeWidth: 0),
+    SoldierShapePart(fillVertices: roundEye(6.5, -4, 1.8375), fillTier: 0, strokeWidth: 0),
+    SoldierShapePart(
+      strokePolyline: smileArc(0, 5, 16, 4.5, 12),
+      fillTier: 1, transparentFill: true, strokeWidth: 4.86,
+    ),
+  ]);
 }
+
+/// Draft soldiers (currently empty — all promoted to production).
+List<SoldierDesign> _buildFacialGeometricDrafts() => <SoldierDesign>[];
 
 /// Validated tab: **11** promoted legacy drafts — all **legendary**.
 final List<SoldierDesign> kValidatedSoldierDesignCatalog =
@@ -2377,19 +2107,130 @@ final SoldierDesign _kProductionBloodStar = SoldierDesign(
   attack: _kRadialLegendaryDrafts[6].attack,
 );
 
+final SoldierDesign _kProductionBoxGrin = SoldierDesign(
+  id: 'mild_square_prod',
+  name: 'Mild Square',
+  rarity: SoldierRarity.common,
+  parts: _scalePartsToWidth(_boxGrinProdParts(), 60),
+  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
+);
+
+/// Tri Fury production — triangle body with vertical ellipse eyes + brow lines + arrogant smirk.
+List<SoldierShapePart> _triFuryProdParts() {
+  // Vertical ellipse eye (rx < ry).
+  List<Offset> ellipseEye(double cx, double cy, double rx, double ry) =>
+      List<Offset>.generate(14, (int i) {
+        final double a = i * 2 * math.pi / 14;
+        return Offset(cx + rx * math.cos(a), cy + ry * math.sin(a));
+      });
+
+  final double triH = 40 * math.sqrt(3) / 2;
+  final List<Offset> triBody = <Offset>[
+    Offset(0, -triH * 2 / 3),
+    Offset(20, triH / 3),
+    Offset(-20, triH / 3),
+  ];
+
+  return _centerParts(<SoldierShapePart>[
+    SoldierShapePart(
+      fillVertices: triBody, fillTier: 2, strokeWidth: 2.2,
+      stackRole: SoldierPartStackRole.body,
+    ),
+    SoldierShapePart(fillVertices: ellipseEye(-6, -1, 1.47, 2.66), fillTier: 0, strokeWidth: 0),
+    SoldierShapePart(fillVertices: ellipseEye(6, -1, 1.47, 2.66), fillTier: 0, strokeWidth: 0),
+    SoldierShapePart(
+      strokePolyline: const <Offset>[Offset(-8, -6.5), Offset(-3.5, -5)],
+      fillTier: 1, transparentFill: true, strokeWidth: 5.4,
+    ),
+    SoldierShapePart(
+      strokePolyline: const <Offset>[Offset(3.5, -5), Offset(8, -6.5)],
+      fillTier: 1, transparentFill: true, strokeWidth: 5.4,
+    ),
+    SoldierShapePart(
+      strokePolyline: const <Offset>[Offset(-7, 8), Offset(7, 6)],
+      fillTier: 1, transparentFill: true, strokeWidth: 5.4,
+    ),
+  ]);
+}
+
+final SoldierDesign _kProductionTriFury = SoldierDesign(
+  id: 'smug_triangle_prod',
+  name: 'Smug Triangle',
+  rarity: SoldierRarity.common,
+  parts: _scalePartsToWidth(_triFuryProdParts(), 60),
+  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
+);
+
+/// Orb Joy production — circle body with arc eyes + open mouth.
+List<SoldierShapePart> _orbJoyProdParts() {
+  List<Offset> arcEye(double cx, double cy, double w, double rise, int segs) {
+    final List<Offset> pts = <Offset>[];
+    for (int i = 0; i <= segs; i++) {
+      final double t = i / segs;
+      pts.add(Offset(cx - w / 2 + w * t, cy - rise * math.sin(math.pi * t)));
+    }
+    return pts;
+  }
+
+  List<Offset> openMouth(double cx, double cy, double rx, double ry, int segs) {
+    final List<Offset> pts = <Offset>[Offset(cx - rx, cy)];
+    for (int i = 1; i < segs; i++) {
+      final double a = math.pi * i / segs;
+      pts.add(Offset(cx - rx * math.cos(a), cy + ry * math.sin(a)));
+    }
+    pts.add(Offset(cx + rx, cy));
+    return pts;
+  }
+
+  final List<Offset> circBody = List<Offset>.generate(20, (int i) {
+    final double a = -math.pi / 2 + i * 2 * math.pi / 20;
+    return Offset(18 * math.cos(a), 18 * math.sin(a));
+  });
+
+  return _centerParts(<SoldierShapePart>[
+    SoldierShapePart(
+      fillVertices: circBody, fillTier: 2, strokeWidth: 2.2,
+      stackRole: SoldierPartStackRole.body,
+    ),
+    SoldierShapePart(
+      strokePolyline: arcEye(-7.5, -3, 8, 4, 10),
+      fillTier: 1, transparentFill: true, strokeWidth: 4.32,
+    ),
+    SoldierShapePart(
+      strokePolyline: arcEye(7.5, -3, 8, 4, 10),
+      fillTier: 1, transparentFill: true, strokeWidth: 4.32,
+    ),
+    SoldierShapePart(
+      fillVertices: openMouth(0, 5, 9, 7, 12),
+      fillTier: 6, strokeWidth: 2.0,
+    ),
+  ]);
+}
+
+final SoldierDesign _kProductionOrbJoy = SoldierDesign(
+  id: 'jolly_circle_prod',
+  name: 'Jolly Circle',
+  rarity: SoldierRarity.common,
+  parts: _scalePartsToWidth(_orbJoyProdParts(), 60),
+  attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'None'),
+);
+
 /// Production tab / war roster.
 final List<SoldierDesign> kProductionSoldierDesignCatalog =
     List<SoldierDesign>.unmodifiable(<SoldierDesign>[
       _kProductionGildedBastion,
       _kProductionEmberSigil,
       _kProductionBloodStar,
+      _kProductionBoxGrin,
+      _kProductionTriFury,
+      _kProductionOrbJoy,
     ]);
 
-/// Draft tab: **15** facial-geometric soldiers (5 triangles, 5 squares, 5 circles).
+/// Draft tab: currently empty (all promoted to production).
 final List<SoldierDesign> kDraftSoldierDesignCatalog =
     List<SoldierDesign>.unmodifiable(_buildFacialGeometricDrafts());
 
-/// Combined list for tooling (**11** validated + **3** production + **15** draft).
+/// Combined list for tooling (**11** validated + **6** production + **0** draft).
 final List<SoldierDesign> kSoldierDesignCatalog = List<SoldierDesign>.unmodifiable(
   <SoldierDesign>[
     ...kValidatedSoldierDesignCatalog,

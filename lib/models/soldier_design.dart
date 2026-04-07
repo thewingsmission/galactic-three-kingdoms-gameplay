@@ -88,7 +88,7 @@ class SoldierShapePart {
     this.motionProbeDistance = 0,
     this.motionProbeScale = 1.0,
     this.stackRole = SoldierPartStackRole.body,
-  })  : assert(fillTier >= 1 && fillTier <= 5),
+  })  : assert(fillTier >= 0 && fillTier <= 6),
         assert(
           (fillVertices != null && fillVertices.length >= 3) ||
               (strokePolyline != null && strokePolyline.length >= 2),
