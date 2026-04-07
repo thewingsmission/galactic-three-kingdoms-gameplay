@@ -597,6 +597,13 @@ class CohortWarGame extends Forge2DGame {
       angle: (int i) => _enemySoldierRenderAngle(i),
       alive: (int i) => _enemyAlive[i],
     );
+    final _SoldierAccessor allyAccessor = (
+      count: () => allySoldiers.length,
+      soldier: (int i) => allySoldiers[i].soldier,
+      position: (int i) => allySoldiers[i].body.body.position,
+      angle: (int i) => _allySoldierRenderAngle(i),
+      alive: (int i) => _allyAlive[i],
+    );
 
     await world.add(
       EnemySoldiersPainter(
@@ -653,6 +660,9 @@ class CohortWarGame extends Forge2DGame {
       playerMaxHp: () => _playerMaxHp,
       enemyHp: () => _enemyHp,
       enemyMaxHp: () => _enemyMaxHp,
+      ally: allyAccessor,
+      allyHp: () => _allyHp,
+      allyMaxHp: () => _allyMaxHp,
     ));
     await world.add(_TargetEnemyIndicator(
       targetIndex: () => _targetEnemyIndex,
@@ -2862,6 +2872,9 @@ class _WarHpBarLayer extends Component {
     required this.playerMaxHp,
     required this.enemyHp,
     required this.enemyMaxHp,
+    this.ally,
+    this.allyHp,
+    this.allyMaxHp,
   });
 
   final _SoldierAccessor player;
@@ -2870,6 +2883,9 @@ class _WarHpBarLayer extends Component {
   final List<int> Function() playerMaxHp;
   final List<int> Function() enemyHp;
   final List<int> Function() enemyMaxHp;
+  final _SoldierAccessor? ally;
+  final List<int> Function()? allyHp;
+  final List<int> Function()? allyMaxHp;
 
   static const double _barWidth = 34;
   static const double _barHeight = 4;
@@ -2937,6 +2953,17 @@ class _WarHpBarLayer extends Component {
       final List<Color> colors =
           pal != null ? factionTierList(pal) : kRedFactionComponentColors;
       _drawBar(canvas, enemy.position(i), eHp[i], eMax[i], colors);
+    }
+    if (ally != null && allyHp != null && allyMaxHp != null) {
+      final List<int> aHp = allyHp!();
+      final List<int> aMax = allyMaxHp!();
+      for (int i = 0; i < ally!.count(); i++) {
+        if (!ally!.alive(i)) continue;
+        final SoldierDesignPalette? pal = ally!.soldier(i).model.displayPalette;
+        final List<Color> colors =
+            pal != null ? factionTierList(pal) : kBlueFactionComponentColors;
+        _drawBar(canvas, ally!.position(i), aHp[i], aMax[i], colors);
+      }
     }
   }
 }
