@@ -2172,7 +2172,7 @@ final SoldierDesign _kProductionBoxGrin = SoldierDesign(
     ),
   ],
   attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'Punch', nominalAttacksPerSecond: 0.5263),
-  maxHp: 30,
+  maxHp: 10,
   attackDamage: 1,
   knockbackSpeed: 75,
 );
@@ -2261,7 +2261,7 @@ final SoldierDesign _kProductionTriFury = SoldierDesign(
     ),
   ],
   attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'Punch', nominalAttacksPerSecond: 0.5263),
-  maxHp: 30,
+  maxHp: 10,
   attackDamage: 1,
   knockbackSpeed: 75,
 );
@@ -2348,7 +2348,7 @@ final SoldierDesign _kProductionOrbJoy = SoldierDesign(
     ),
   ],
   attack: const SoldierAttackSpec(mode: SoldierAttackMode.none, label: 'Punch', nominalAttacksPerSecond: 0.5263),
-  maxHp: 30,
+  maxHp: 10,
   attackDamage: 1,
   knockbackSpeed: 75,
 );

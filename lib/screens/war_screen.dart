@@ -265,50 +265,78 @@ class _WarScreenState extends State<WarScreen>
               ),
             ),
           ),
-          Positioned(
-            left: 24,
-            bottom: 24,
-            child: SafeArea(
-              child: VirtualJoystick(
-                outerRadius: 72,
-                knobRadius: 28,
-                onChanged: (Offset o) => _game.setStick(o),
-              ),
-            ),
+          ValueListenableBuilder<bool>(
+            valueListenable: _game.playerEliminated,
+            builder: (BuildContext context, bool eliminated, Widget? child) {
+              return Positioned(
+                left: 24,
+                bottom: 24,
+                child: SafeArea(
+                  child: IgnorePointer(
+                    ignoring: eliminated,
+                    child: Opacity(
+                      opacity: eliminated ? 0.35 : 1.0,
+                      child: VirtualJoystick(
+                        outerRadius: 72,
+                        knobRadius: 28,
+                        onChanged: (Offset o) => _game.setStick(o),
+                        baseColor: eliminated ? const Color(0x22888888) : const Color(0x33FFFFFF),
+                        ringColor: eliminated ? const Color(0x44888888) : const Color(0x88FFFFFF),
+                        knobColor: eliminated ? const Color(0x66888888) : const Color(0xE6FFFFFF),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
-          // Action buttons — bottom right
-          _buildActionButton(
-            mode: WarActionMode.attack,
-            label: 'Attack',
-            assetPath: 'image/button_attack.png',
-            fillColor: redTier[4],
-            outlineColor: redTier[1],
-            bottomOffset: _btnRadius * 0.8,
-            rightOffset: _btnRadius * 4.9,
-            imageScale: 2.6845,
-            imageOffset: Offset(0, _btnRadius * 0.15),
-          ),
-          _buildActionButton(
-            mode: WarActionMode.defense,
-            label: 'Defense',
-            assetPath: 'image/button_defense.png',
-            fillColor: yellowTier[4],
-            outlineColor: yellowTier[1],
-            bottomOffset: _btnRadius * 1.4,
-            rightOffset: _btnRadius * 2.65,
-            imageScale: 2.016,
-            imageOffset: Offset(_btnRadius * 0.03, _btnRadius * 0.31),
-          ),
-          _buildActionButton(
-            mode: WarActionMode.target,
-            label: 'Target',
-            assetPath: 'image/button_target.png',
-            fillColor: blueTier[4],
-            outlineColor: blueTier[1],
-            bottomOffset: _btnRadius * 2.4,
-            rightOffset: _btnRadius * 0.5,
-            imageScale: 1.694,
-            imageOffset: Offset(_btnRadius * 0.07, 0),
+          ValueListenableBuilder<bool>(
+            valueListenable: _game.playerEliminated,
+            builder: (BuildContext context, bool eliminated, Widget? child) {
+              return IgnorePointer(
+                ignoring: eliminated,
+                child: Opacity(
+                  opacity: eliminated ? 0.35 : 1.0,
+                  child: Stack(
+                    children: <Widget>[
+                      _buildActionButton(
+                        mode: WarActionMode.attack,
+                        label: 'Attack',
+                        assetPath: 'image/button_attack.png',
+                        fillColor: redTier[4],
+                        outlineColor: redTier[1],
+                        bottomOffset: _btnRadius * 0.8,
+                        rightOffset: _btnRadius * 4.9,
+                        imageScale: 2.6845,
+                        imageOffset: Offset(0, _btnRadius * 0.15),
+                      ),
+                      _buildActionButton(
+                        mode: WarActionMode.defense,
+                        label: 'Defense',
+                        assetPath: 'image/button_defense.png',
+                        fillColor: yellowTier[4],
+                        outlineColor: yellowTier[1],
+                        bottomOffset: _btnRadius * 1.4,
+                        rightOffset: _btnRadius * 2.65,
+                        imageScale: 2.016,
+                        imageOffset: Offset(_btnRadius * 0.03, _btnRadius * 0.31),
+                      ),
+                      _buildActionButton(
+                        mode: WarActionMode.target,
+                        label: 'Target',
+                        assetPath: 'image/button_target.png',
+                        fillColor: blueTier[4],
+                        outlineColor: blueTier[1],
+                        bottomOffset: _btnRadius * 2.4,
+                        rightOffset: _btnRadius * 0.5,
+                        imageScale: 1.694,
+                        imageOffset: Offset(_btnRadius * 0.07, 0),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
           ValueListenableBuilder<bool>(
             valueListenable: _game.gameOver,
